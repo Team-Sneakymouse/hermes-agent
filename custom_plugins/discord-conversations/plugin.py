@@ -1,7 +1,7 @@
 """Discord conversation policy, using only documented gateway contracts."""
 
 
-def admission(context):
+def admission(context, **kwargs):
     if context.platform != "discord" or context.chat_type == "dm":
         return {"action": "allow"}
     literal = context.bot_id and any(
@@ -46,7 +46,7 @@ class ConversationPolicy:
         finally:
             db.close()
 
-    async def route(self, context, services):
+    async def route(self, context, services, **kwargs):
         source = context.source
         if source.platform.value != "discord" or source.chat_type != "group" or source.thread_id or not context.shared_channel:
             return None
@@ -79,7 +79,7 @@ class ConversationPolicy:
                 db.execute("INSERT INTO associations VALUES (?, ?, ?)",
                            (base_session_key, source.message_id, source.conversation_lane))
 
-    def delivered(self, receipt):
+    def delivered(self, receipt, **kwargs):
         source = receipt.source
         if source.platform.value != "discord" or source.chat_type != "group" or not source.conversation_lane or str(source.chat_id) != receipt.channel_id:
             return
