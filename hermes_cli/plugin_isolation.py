@@ -70,6 +70,9 @@ HOST_OBJECT_BASES: Dict[str, str] = {
 # callback receives placeholders for those fields, so a plugin that uses them needs in-process.
 HOST_DEGRADED_HOOKS: Dict[str, str] = {
     "pre_gateway_dispatch": "receives the live gateway runner and session store",
+    "gateway_message_admission": "receives a typed immutable admission context",
+    "gateway_session_route": "receives typed route context and async transport history service",
+    "gateway_delivery_receipt": "receives a typed delivery receipt with SessionSource",
 }
 
 

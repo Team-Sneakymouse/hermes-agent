@@ -111,6 +111,8 @@ class DiscordMediaMixin:
             )
             return result
         msg = await channel.send(content=caption if caption else None, files=[discord_file])
+        from gateway.conversation_plugins import report_delivery
+        await report_delivery(channel.id, (str(msg.id),))
         attachments = getattr(msg, "attachments", None) or []
         if not attachments:
             # Discord accepted the message but attached nothing: fail loud instead of a silent drop.
@@ -256,7 +258,9 @@ class DiscordMediaMixin:
                         channel, content=(content or "").strip(), files=files,
                     )
                 else:
-                    await channel.send(content=content, files=files)
+                    msg = await channel.send(content=content, files=files)
+                    from gateway.conversation_plugins import report_delivery
+                    await report_delivery(channel.id, (str(msg.id),))
                 delivered = True
             except Exception as e:
                 logger.warning(
@@ -329,6 +333,8 @@ class DiscordMediaMixin:
                     discord.http.Route("POST", "/channels/{channel_id}/messages", channel_id=channel.id),
                     form=form,
                 )
+                from gateway.conversation_plugins import report_delivery
+                await report_delivery(channel.id, (str(msg_data["id"]),))
                 return SendResult(success=True, message_id=str(msg_data["id"]))
             except Exception as voice_err:
                 logger.debug("Voice message flag failed, falling back to file: %s", voice_err)
@@ -340,6 +346,8 @@ class DiscordMediaMixin:
                         msg = await channel.send(file=file, reference=None)
                     else:
                         raise
+                from gateway.conversation_plugins import report_delivery
+                await report_delivery(channel.id, (str(msg.id),))
                 return SendResult(success=True, message_id=str(msg.id))
         except Exception as e:  # pragma: no cover - defensive logging
             logger.error("[%s] Failed to send audio: %s", self.name, e, exc_info=True)
@@ -399,6 +407,8 @@ class DiscordMediaMixin:
                 if self._is_forum_parent(channel):
                     return await self._forum_post_file(channel, content=(caption or "").strip(), file=file)
                 msg = await channel.send(content=caption if caption else None, file=file)
+                from gateway.conversation_plugins import report_delivery
+                await report_delivery(channel.id, (str(msg.id),))
                 return SendResult(success=True, message_id=str(msg.id))
         except ImportError:
             logger.warning("[%s] aiohttp not installed, falling back to URL. Run: pip install aiohttp", self.name, exc_info=True)

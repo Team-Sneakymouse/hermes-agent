@@ -432,6 +432,7 @@ from gateway.platforms.event import MessageEvent, MessageType, ProcessingOutcome
 from gateway.warning_notifications import diagnostic_wake_muted
 from hermes_cli.observability.shared_metrics_gateway import records_delivery, stop_reply_clock
 from gateway.session import SessionSource, build_session_key
+from gateway.conversation_plugins import delivery_turn
 from gateway.session_transcript import TranscriptReadError
 from hermes_constants import get_default_hermes_root, get_hermes_dir, get_hermes_home
 from agent.provider_media import GENERATED_SUBDIR, MEDIA_CACHE_MAX_AGE_HOURS
@@ -2554,6 +2555,35 @@ class BasePlatformAdapter(ABC):
             "text_batch_split_delay_seconds", self._TEXT_BATCH_DEFAULT_SPLIT_DELAY_S,
             min_value=self._text_batch_delay_seconds, max_value=self._TEXT_BATCH_MAX_SPLIT_DELAY_S)
 
+    async def preceding_message_ids(self, event: "MessageEvent") -> tuple[str, ...]:
+        """Public transport history service, newest first and unfiltered.
+
+        Adapters supporting recent-window routing implement this; unsupported history raises
+        rather than inventing an empty window. No route plugin means this is never called.
+        """
+        raise NotImplementedError(f"{self.platform.value} does not provide preceding-message history")
+
+    async def prepare_conversation_route(self, event: "MessageEvent", *, original_content: str | None = None) -> None:
+        """Public routing boundary: call before adapter batching; handle_message calls it before guards.
+
+        Routing is once per event, never repeated at batch flush or for internally pinned wakes.
+        """
+        if (getattr(event, "_conversation_route_prepared", False) or event.internal
+                or event.source.conversation_lane):
+            return
+        from gateway.conversation_plugins import RouteContext, RoutingServices, select_conversation_lane
+        from gateway.session_identity import replace_source
+        self._canonicalize(event.source)
+        origin_id = event.message_id or getattr(event.raw_message, "id", None)
+        if event.source.message_id is None and origin_id is not None:
+            event.source.message_id = str(origin_id)
+        await select_conversation_lane(
+            RouteContext(replace_source(event.source), event.text if original_content is None else original_content,
+                         self._source_session_key(event.source),
+                         not self.config.extra.get("group_sessions_per_user", True)),
+            RoutingServices(lambda: self.preceding_message_ids(event)), event.source)
+        event._conversation_route_prepared = True
+
     def _event_session_key(self, event: "MessageEvent") -> str:
         """Adapter-level session key for ``event``, profile-namespaced like the agent run."""
         return self._source_session_key(event.source)
@@ -3599,6 +3629,7 @@ class BasePlatformAdapter(ABC):
             ttl = 0
         return response.text, int(ttl or 0)
 
+    @delivery_turn
     async def _dispatch_inline_reply(self, event: MessageEvent, *, log_cmd: Optional[str] = None) -> None:
         """Call the handler and send its reply inline, with retry, threading and
         ephemeral deletion — no session lifecycle (active-session bypass paths)."""
@@ -4057,6 +4088,7 @@ class BasePlatformAdapter(ABC):
         # Identity FIRST: every key below (routing check, guard lookup, batch lane) derives from it.
         if self._drop_unresolved(event):
             return
+        await self.prepare_conversation_route(event)
         expected_session_key = str((event.metadata or {}).get("gateway_session_key") or "").strip()
         # Explicitly routed events already name their destination; recovering a
         # different topic would redirect them and yield before the session claim.
@@ -4559,6 +4591,7 @@ class BasePlatformAdapter(ABC):
         elif current_task is not None and self._session_tasks.get(session_key) is current_task:
             self._cleanup_finished_session_task(session_key, interrupt_event)
 
+    @delivery_turn
     async def _process_message_background(self, event: MessageEvent, session_key: str) -> None:
         """Background task that actually processes the message."""
         delivery_attempted = delivery_succeeded = False  # feeds the processing-complete hook
