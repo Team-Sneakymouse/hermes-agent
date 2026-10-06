@@ -90,6 +90,31 @@ async def test_delivered_replies_rejoin_lane_and_reset_fences_late_old_replies(t
     assert await route("100", ["70"]) == lane
 
 
+def test_plugin_passes_actual_doctor_validation(tmp_path):
+    import os
+    import subprocess
+
+    root = Path(__file__).resolve().parents[2]
+    home = tmp_path / "doctor-home"
+    home.mkdir()
+    bundled = tmp_path / "bundled-plugins"
+    bundled.mkdir()
+    result = subprocess.run(
+        [sys.executable, "-m", "hermes_cli.main", "plugins", "doctor",
+         str(root / "custom_plugins/discord-conversations"), "--ci"],
+        cwd=root,
+        env={**os.environ, "HERMES_HOME": str(home),
+             "HERMES_BUNDLED_PLUGINS": str(bundled),
+             "HERMES_ENABLE_PROJECT_PLUGINS": "0"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "OK: runtime discovery" in result.stdout, result.stdout
+    assert "registrations: 0 tool(s), 4 hook(s)" in result.stdout, result.stdout
+
+
 @pytest.mark.asyncio
 async def test_plugin_install_loads_and_registers_validated_hooks(tmp_path, monkeypatch):
     import shutil
