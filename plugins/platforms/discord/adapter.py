@@ -1804,7 +1804,6 @@ class DiscordAdapter(DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceIn
         admitted, role_authorized = self._discord_message_admission(message, claim=True)
         if not admitted:
             return False
-        self._record_bot_tag_debounce(message)
         return await self._handle_message(message, role_authorized=role_authorized)
 
     # --- gateway_platform_event fire-sites ---
@@ -3351,6 +3350,8 @@ class DiscordAdapter(DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceIn
                     else:
                         raise
                 message_ids.append(str(msg.id))
+                from gateway.conversation_plugins import report_delivery
+                await report_delivery(channel.id, (str(msg.id),))
             # Track the last sent message for history backfill (skips the full history scan).
             if message_ids:
                 _target_id = thread_id or chat_id
@@ -3522,6 +3523,8 @@ class DiscordAdapter(DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceIn
                     self._last_overflow_preview[_preview_key] = truncated
                 else:
                     raise
+            from gateway.conversation_plugins import report_delivery
+            await report_delivery(channel.id, (message_id,), "edit")
             result = SendResult(success=True, message_id=message_id)
             if finalize:
                 await self._record_response_async((metadata or {}).get("reply_to_message_id"), result, content, True)
@@ -3567,6 +3570,8 @@ class DiscordAdapter(DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceIn
                 "[%s] Overflow split: first-chunk edit failed: %s", self.name, e, exc_info=True,
             )
             return SendResult(success=False, error=str(e))
+        from gateway.conversation_plugins import report_delivery
+        await report_delivery(channel.id, (message_id,), "edit")
         continuation_ids: list[str] = []
         delivered = 1
         prev_msg = msg
@@ -3608,6 +3613,7 @@ class DiscordAdapter(DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceIn
                     )
             new_id = str(sent.id)
             continuation_ids.append(new_id)
+            await report_delivery(channel.id, (new_id,))
             delivered += 1
             prev_msg = sent
         last_id = continuation_ids[-1] if continuation_ids else message_id
@@ -6139,6 +6145,29 @@ class DiscordAdapter(DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceIn
         self, message: DiscordMessage, role_authorized: bool = False, *, recovered: bool = False,
     ) -> bool:
         """Handle one Discord message and report whether it reached dispatch."""
+        from gateway.conversation_plugins import AdmissionContext, admit_message
+        _admission_source = self.build_source(
+            chat_id=str(message.channel.id),
+            chat_type=("dm" if isinstance(message.channel, discord.DMChannel) else
+                       "thread" if isinstance(message.channel, discord.Thread) else "group"),
+            user_id=str(message.author.id),
+            thread_id=str(message.channel.id) if isinstance(message.channel, discord.Thread) else None,
+            parent_chat_id=self._get_parent_channel_id(message.channel) if isinstance(message.channel, discord.Thread) else None,
+            guild_id=str(message.guild.id) if getattr(message, "guild", None) else None,
+            message_id=str(message.id),
+        )
+        self._canonicalize(_admission_source)
+        _admission = AdmissionContext(
+            platform=self.platform.value, original_content=message.content,
+            bot_id=str(self._client.user.id) if self._client and self._client.user else None,
+            channel_id=str(message.channel.id), chat_type=_admission_source.chat_type,
+            message_id=str(message.id), user_id=str(message.author.id),
+            is_bot=bool(getattr(message.author, "bot", False)), profile=_admission_source.profile,
+        )
+        if not await admit_message(_admission, _admission_source):
+            return False
+        if not recovered:
+            self._record_bot_tag_debounce(message)
         # Server channels (not DMs) require @mention unless free-response or an already-joined thread.
         #
         # Config (discord.* in config.yaml or DISCORD_* env vars):
@@ -6355,6 +6384,7 @@ class DiscordAdapter(DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceIn
         ):
             event._bot_tag_debounce = True  # type: ignore[attr-defined]
 
+        await self.prepare_conversation_route(event, original_content=_admission.original_content)
         # Track participation so follow-ups in this thread don't need @mention.
         if thread_id:
             await self._threads.mark_async(thread_id)
@@ -6364,6 +6394,15 @@ class DiscordAdapter(DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceIn
         else:
             await self.handle_message(event)
         return True
+
+    async def preceding_message_ids(self, event: MessageEvent) -> tuple[str, ...]:
+        raw = event.raw_message
+        channel = getattr(raw, "channel", None)
+        if channel is None or not hasattr(raw, "id"):
+            raise ValueError("Discord preceding-message history needs a message or interaction origin")
+        event.source.message_id = event.source.message_id or str(raw.id)
+        return tuple([str(item.id) async for item in channel.history(
+            limit=self._discord_history_backfill_limit(), before=raw, oldest_first=False)])
 
     def _text_batch_delay_for(self, pending: Optional[MessageEvent]) -> float:
         """A bot handoff's continuation chunks arrive at Discord's send rate (~1/s), so a

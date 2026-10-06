@@ -17,6 +17,7 @@ from typing import Optional, Union
 from agent.i18n import t
 from agent.turn_context import extract_api_content_sidecar
 from gateway.config import Platform
+from gateway.conversation_plugins import conversation_reset_boundary
 from gateway.platforms.base import EphemeralReply
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.session import SessionSource, build_session_key, is_shared_multi_user_session
@@ -152,6 +153,7 @@ class GatewaySessionCommandsMixin:
         await self.hooks.emit("session:end", dict(hook_payload))
         await self.hooks.emit("session:reset", dict(hook_payload))
 
+    @conversation_reset_boundary
     async def _handle_reset_command(self, event: MessageEvent) -> Union[str, EphemeralReply]:
         """Handle /new or /reset command."""
         source = event.source
@@ -209,10 +211,18 @@ class GatewaySessionCommandsMixin:
         _new_sid = new_entry.session_id if new_entry else None
         # Plugin on_session_reset hook (new session guaranteed to exist); best-effort.
         try:
-            from hermes_cli.lifecycle import invoke_hook as _invoke_hook
-            _invoke_hook("on_session_reset", session_id=_new_sid, reason="new_session",
-                         platform=source.platform.value if source.platform else "",
-                         old_session_id=_old_sid, new_session_id=_new_sid)
+            from hermes_cli.lifecycle import ainvoke_hook
+            from gateway.conversation_plugins import plugin_profile_scope, bind_delivery_session
+            from gateway.session_identity import replace_source
+            bind_delivery_session(_new_sid)
+            with plugin_profile_scope(source):
+                await ainvoke_hook("on_session_reset", session_id=_new_sid, reason="new_session",
+                                  platform=source.platform.value if source.platform else "",
+                                  old_session_id=_old_sid, new_session_id=_new_sid,
+                                  source=replace_source(source), channel_id=source.chat_id,
+                                  profile=source.profile, session_key=session_key,
+                                  base_session_key=(session_key.rsplit(":lane:", 1)[0]
+                                                    if source.conversation_lane else session_key))
         except Exception:
             pass
         try:
