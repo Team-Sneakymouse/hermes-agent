@@ -1,0 +1,10 @@
+name: pocketbase
+version: 0.1.0
+description: "PocketBase record and collection operations with scoped human approvals."
+author: Team-Sneakymouse
+kind: standalone
+provides_tools:
+  - pocketbase_records
+  - pocketbase_collections
+provides_hooks:
+  - post_approval_response
