@@ -770,19 +770,27 @@ Disabling the size cap (`max_attachment_bytes: 0`) means a user can drop a multi
 
 ## Interactive Prompts (clarify)
 
-When the agent calls the `clarify` tool — to ask which approach you prefer, get post-task feedback, or check before a non-trivial decision — Discord renders the question with **one button per choice**:
+When the agent calls the `clarify` tool — to ask which approach you prefer, get post-task feedback, or check before a non-trivial decision — Discord renders the question and **full numbered choices in the message body**, with **number-only buttons** underneath:
 
 > Which framework should I use for the dashboard?
 >
-> [1. Next.js] [2. Remix] [3. Astro] [Other (type answer)]
+> 1. Next.js (Recommended)
+> 2. Remix
+> 3. Astro
+>
+> [1] [2] [3] [Other (type answer)]
 
 Click a numbered button to answer, or click **Other** to type a free-form response (the next message you send in that channel becomes the answer). Open-ended `clarify` calls (no preset choices) skip the buttons and just capture your next message.
+
+Long choices are not shortened to fit button labels: read their complete text above the buttons, including any `(Recommended)` marker. Each number submits the original choice, not its button label. Existing user/role authorization still applies.
+
+Choice prompts support up to **24 options plus Other**. The complete question, options, heading, and reply hint must fit Discord's **2000 UTF-16 unit** message limit (some emoji count as two units). If either limit is exceeded, the interactive renderer returns an explicit delivery error without sending a partial list or silently truncating options. The gateway's existing plain-text fallback may then deliver the question without buttons; use a smaller prompt to keep the interactive layout. Clarification buttons do not use dropdowns.
 
 The buttons disable themselves once a choice is made so duplicate clicks don't double-resolve the prompt. Configure the response timeout via `agent.clarify_timeout` in `~/.hermes/config.yaml` (default `3600` seconds; `0` or less = unlimited). If you don't respond within the timeout, the agent unblocks with `"outcome": "timed_out"` and adapts rather than hanging. Reply `skip` to skip a question.
 
 ### Prompt layout
 
-Interactive prompts (command approvals, `clarify` questions, and slash-command confirmations) share one layout: the **plain message** carries the full payload — the command and why it was flagged plus the approval deadline, or the question and reply hint — the **embed card** underneath is a header only, and the buttons sit below the card. Everything you need to decide is in the plain text, so the prompt reads correctly on clients that hide or detach embeds, and nothing is shown twice on clients that render them.
+Interactive prompts (command approvals, `clarify` questions, and slash-command confirmations) share one layout: the **plain message** carries the payload — the command and why it was flagged plus the approval deadline, or the clarification question, full numbered choices, and reply hint — the **embed card** underneath is a header only, and the buttons sit below the card. The clarification options remain readable on clients that hide or detach embeds, and are not duplicated on clients that render them.
 
 ## Home Channel
 
