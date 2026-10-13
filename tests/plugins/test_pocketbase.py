@@ -17,9 +17,12 @@ def backend():
         def do_request(self):
             body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
             state["requests"].append((self.command, self.path, dict(self.headers), json.loads(body) if body else None))
-            if self.command == "GET" and self.path.startswith("/api/collections?"):
-                from urllib.parse import parse_qs, urlsplit
-                page = int(parse_qs(urlsplit(self.path).query)["page"][0])
+            from urllib.parse import parse_qs, urlsplit
+            parsed = urlsplit(self.path)
+            query = parse_qs(parsed.query)
+            if (self.command == "GET" and parsed.path == "/api/collections"
+                    and query.get("perPage") == ["500"] and query.get("sort") == ["id"]):
+                page = int(query["page"][0])
                 pages = state.get("schema_pages", [[SCHEMA]])
                 status, payload = 200, {"items": pages[page - 1], "page": page,
                                         "totalPages": len(pages), "totalItems": sum(map(len, pages))}
@@ -283,7 +286,7 @@ def test_snapshot_capacity_and_expired_cleanup(backend):
 
 
 @pytest.mark.parametrize("action,method,path,data", [
-    ("list", "GET", "/api/collections", None),
+    ("list", "GET", "/api/collections?page=1&perPage=100", None),
     ("get", "GET", "/api/collections/notes", None),
     ("create", "POST", "/api/collections", {"name": "notes", "type": "base", "fields": [{"name": "title", "type": "text"}], "indexes": [], "listRule": None}),
 ])
@@ -496,3 +499,14 @@ def test_system_collection_id_cannot_bypass_name_guard(backend, action):
         service.records({"action": action, "collection": "pbc123", "record_id": "r1", "data": {"email": "x"}})
     assert not any(r[0] in {"PATCH", "DELETE"} or (r[0] == "POST" and r[1].endswith("/records")) for r in backend["requests"])
     assert prompts == []
+
+
+@pytest.mark.parametrize("args,expected", [({}, {"page": ["1"], "perPage": ["100"]}),
+    ({"page": 2}, {"page": ["2"], "perPage": ["100"]}),
+    ({"per_page": 25}, {"page": ["1"], "perPage": ["25"]}),
+    ({"page": 2, "per_page": 25}, {"page": ["2"], "perPage": ["25"]})])
+def test_collection_list_sends_validated_pagination_defaults(backend, args, expected):
+    from urllib.parse import parse_qs, urlsplit
+    service, _ = deleting_service(backend)
+    service.collections({"action": "list", **args})
+    assert parse_qs(urlsplit(backend["requests"][-1][1]).query) == expected

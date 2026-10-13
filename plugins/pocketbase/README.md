@@ -66,7 +66,12 @@ returns the UTC cutoff and exact frozen IDs. A single-record preview has no date
 cutoff and explicitly lists its one ID.
 
 Snapshots expire after five minutes, are process-local and single-use, and bind
-profile, session, host, credentials, collection ID, operation and schema digest.
+profile, conversation identity, host, credentials, collection ID, operation and schema digest.
+For API-server turns, preview ownership uses the host-bound session ID plus its
+principal/transport scope, not the per-run approval key. Human approvals remain
+isolated to the current run. Without a bound API conversation ID, previews retain
+run-local ownership and cannot cross runs. Other surfaces retain their existing
+approval-session scope. Collection lists explicitly default to page 1 / 100 items.
 Deletion also binds the full collection graph digest and re-reads every schema
 page after approval. Incoming `cascadeDelete` relations, including self-relations,
 are rejected rather than expanding approval to other collections or records.

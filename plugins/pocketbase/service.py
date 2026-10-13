@@ -41,7 +41,14 @@ class PocketBaseService:
     def _scope(self, client):
         from hermes_constants import get_hermes_home
         from tools.approval_context import get_current_session_key
-        return (str(get_hermes_home()), get_current_session_key(), client.host,
+        from gateway.session_context import get_session_env
+        identity = ("approval", get_current_session_key())
+        if get_session_env("HERMES_SESSION_PLATFORM") == "api_server" and get_session_env("HERMES_SESSION_ID"):
+            # API approval keys rotate per run; preview ownership follows the host-bound conversation.
+            identity = ("api_server", get_session_env("HERMES_SESSION_ID"),
+                        get_session_env("HERMES_BROWSER_CONTROL_PRINCIPAL"),
+                        get_session_env("HERMES_BROWSER_CONTROL_TRANSPORT_FAMILY"))
+        return (str(get_hermes_home()), identity, client.host,
                 fingerprint([client.username, client.password]))
 
     def _save(self, client, plan):
@@ -183,7 +190,7 @@ class PocketBaseService:
         if type(page) is not int or page < 1 or type(per_page) is not int or not 1 <= per_page <= 500:
             raise ValueError("Invalid collection pagination")
         return client.request("GET", "/api/collections", params={
-            "page": args.get("page"), "perPage": args.get("per_page"),
+            "page": page, "perPage": per_page,
             "filter": args.get("filter"), "sort": args.get("sort")})
 
     def _collection_create(self, client, args):
