@@ -86,45 +86,16 @@ class TestClarifyChoiceViewConstruction:
     """The view should build numeric buttons plus an Other button."""
 
 
-    def test_truncates_long_choice_label(self):
-        long_choice = "x" * 200
+    @pytest.mark.parametrize("choice", ["short", "x" * 200, "😀" * 100, "a-" * 100])
+    def test_choice_buttons_use_only_numbers(self, choice):
         view = ClarifyChoiceView(
-            choices=[long_choice],
+            choices=[choice] * 24,
             clarify_id="cidZ",
             allowed_user_ids=set(),
         )
-        # 78 chars + single-char ellipsis in the body, plus "1. " prefix.
-        # Uses U+2026 (…) instead of "..." to fit the 80-char Discord cap.
-        first_label = view.children[0].label
-        assert first_label.startswith("1. ")
-        assert first_label.endswith("\u2026")
-        # Final label total <= 80 (Discord cap on button labels)
-        assert len(first_label) <= 80
-
-
-    def test_truncates_long_no_space_choice_on_soft_boundary(self):
-        # A long choice with soft boundaries (commas, hyphens) but no spaces
-        # should still cut on a soft boundary, not mid-word. We use an input
-        # where position 76 is NOT a soft boundary — the test only passes
-        # if the renderer actively searches backward for a soft char
-        # rather than blindly cutting at the budget limit.
-        long_choice = "a" * 30 + "-" + "b" * 30 + "-" + "c" * 30 + "-" + "d" * 30
-        # 30a-30b-30c-30d = 30 + 1 + 30 + 1 + 30 + 1 + 30 = 123 chars
-        # Position 76 is 'b' (a mid-word alpha). The renderer must look back
-        # for a '-' to cut on.
-        view = ClarifyChoiceView(
-            choices=[long_choice],
-            clarify_id="cidSB",
-            allowed_user_ids=set(),
-        )
-        first_label = view.children[0].label
-        assert first_label.endswith("\u2026")
-        assert len(first_label) <= 80
-        body = first_label[len("1. "):].rstrip("\u2026")
-        last_char = body[-1]
-        assert last_char in {"-", ",", ".", ")", " "}, (
-            f"Label cuts mid-word at {last_char!r}: {first_label!r}"
-        )
+        assert [button.label for button in view.children[:-1]] == [str(i) for i in range(1, 25)]
+        assert all(utf16_len(button.label) <= 80 for button in view.children)
+        assert view.choices == [choice] * 24
 
 
 # ===========================================================================
@@ -290,7 +261,7 @@ class TestDiscordSendClarify:
         assert len(choice_labels) == 1, (
             f"Expected 1 choice, got {len(choice_labels)}: {choice_labels!r}"
         )
-        assert "real choice" in choice_labels[0]
-        for label in choice_labels:
-            assert "only_name_here" not in label, f"name leaked: {label!r}"
-            assert "only_value_here" not in label, f"value leaked: {label!r}"
+        assert choice_labels == ["1"]
+        assert "1. real choice" in kwargs["content"]
+        assert "only_name_here" not in kwargs["content"]
+        assert "only_value_here" not in kwargs["content"]
