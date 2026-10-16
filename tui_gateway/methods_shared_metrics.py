@@ -34,6 +34,13 @@ def _shared_metrics_record_setup_completed(cfg) -> None:
     record_setup_completed(surface="desktop", provider=provider if isinstance(provider, str) and provider else None)
 
 
+def _tui_model_friction(signal, session, turns=1):
+    from hermes_cli.observability.shared_metrics_model import record_model_friction
+    record_model_friction(
+        signal, session_id=session.get("session_key"), agent=session.get("agent"),
+        hermes_home=session.get("profile_home"), turns=turns)
+
+
 @method("shared_metrics.status")
 @_profile_scoped
 def _(rid, params: dict) -> dict:
@@ -66,8 +73,11 @@ def _(rid, params: dict) -> dict:
     _record_send_consent_change(enabled=send)
     if not enabled:
         from hermes_cli.observability.shared_metrics_desktop import purge_onboarding_latches
+        from hermes_cli.observability.shared_metrics_process import purge_pending_receipts
+        from hermes_constants import get_hermes_home
 
         purge_onboarding_latches()
+        purge_pending_receipts(get_hermes_home())
     if params.get("first_run") is True:
         _shared_metrics_record_setup_completed(cfg)
     return _ok(rid, _shared_metrics_consent(cfg))
