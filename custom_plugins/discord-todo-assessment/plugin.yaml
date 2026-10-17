@@ -1,0 +1,10 @@
+name: discord-todo-assessment
+version: 1.0.0
+manifest_version: 2
+description: Authenticated tool-free todo assessment and canonical Discord thread handoff.
+author: Team Sneakymouse
+kind: standalone
+config_schema:
+  allowed_parent_ids:
+    type: list
+    default: ["1560943737688039474"]
