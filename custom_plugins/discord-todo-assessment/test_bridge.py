@@ -31,7 +31,7 @@ class AssessmentTests(unittest.IsolatedAsyncioTestCase):
                                      {"reports": [{"id": "r1", "text": "broken"}],
                                       "labels": [{"id": "l1", "name": "bug", "description": "Incorrect behavior"}],
                                       "open_todos": []})
-        self.assertEqual(result["guidance_version"], "1")
+        self.assertEqual(result["guidance_version"], "2")
         self.assertEqual(result["assessment"], {"decisions": [{"action": "dismiss", "confidence": 0.9, "reason": "One issue"}]})
         self.assertEqual(len(calls), 1)
         call = calls[0]
@@ -40,7 +40,37 @@ class AssessmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("tools", call)
         self.assertNotIn("provider", call)
         self.assertNotIn("model", call)
-        self.assertEqual(call["purpose"], "discord-todo.assess.v1")
+        self.assertEqual(call["purpose"], "discord-todo.assess.v2")
+
+    async def test_actual_llm_instructions_include_agreed_assessment_policy(self):
+        calls = []
+        async def complete(**kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(parsed={"decisions": [{
+                "action": "clarify", "confidence": 0.6, "reason": "Missing evidence"}]})
+        await load_plugin().assess(SimpleNamespace(llm=SimpleNamespace(acomplete_structured=complete)),
+            {"reports": [{"id": "r1", "context_complete": False}],
+             "labels": [{"id": "untriaged", "name": "Untriaged"}], "open_todos": []})
+        instructions = calls[0]["instructions"]
+        for rule in (
+            "Bug / red: economy exploit, or the affected player cannot play.",
+            "Bug / blue: mildly disruptive AND not expected gameplay.",
+            "Bug / yellow: severity between those red and blue definitions.",
+            "Features default to blue and must be blue under the current schema enforcement.",
+            "Split independent issues into separate decisions.",
+            "same underlying actionable problem, not merely the same plugin",
+            "Use the supplied Untriaged label when the plugin cannot be identified",
+            "below 0.7 requires human intervention; no association or label from that decision is committed",
+            "Do not read plugin codebases, fetch URLs, or use tools",
+            "Incomplete context requires explicit uncertainty",
+            "concise, auditable, evidence-based reasons, not chain-of-thought",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, instructions)
+        self.assertNotIn("red (critical)", instructions)
+        self.assertNotIn("yellow (normal)", instructions)
+        self.assertNotIn("blue (minor)", instructions)
+        self.assertEqual(calls[0]["json_schema"], load_plugin().SCHEMA)
 
     async def test_invalid_model_output_fails_closed(self):
         module = load_plugin()

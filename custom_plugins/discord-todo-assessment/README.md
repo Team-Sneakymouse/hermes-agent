@@ -11,7 +11,7 @@ Therefore this artifact is tested against the installed runtime, **not a promise
 
 ## One-click start contract
 
-1. Node authorizes the **human developer** who clicked Start and atomically claims the todo.
+1. Node relies on Discord-authorized command delivery: `/todo` and `Create report` default to Administrator, with Discord application-command overrides granting intended developer access, following the same model as `/plugins update`. Start/edit components additionally require the original list owner, intended guild and a bot-authored message. Node atomically claims the todo for the **actual human developer** who clicked Start.
 2. Node **creates a new forum post/thread for that attempt in forum `1560943737688039474`**, pings the actual developer who clicked Start in its starter message, and stores its ID. Do not reuse a previously conversed thread when promising a fresh conversation.
 3. Node POSTs `/plugins/discord-todo/v1/start` on the Hermes API-server listener:
 
@@ -35,9 +35,11 @@ ctx.inject_message(context, origin={
 
 The parent and guild/scope IDs come from the fetched Discord thread, never caller-supplied routing fields. They preserve forum-parent and guild profile routes. The gateway must serve this plugin's profile and route that forum to it; injection cannot select a different profile. This creates the **canonical Discord thread session in this plugin's own profile**, with the supplied context as its opening user prompt. Human follow-ups address that same session. Unlike webhooks, this is not a separate webhook conversation with its answer merely delivered to Discord. No `/new` command or bot-authored mention message is sent. The profile's human admission/mention policy still applies to later real Discord replies. The forum starter ping is performed by Node and is not used as a bot-authored gateway trigger.
 
-Host injection authorizes the supplied human ID against current Hermes allowlists/pairing/explicit allow-all. An adapter-only role authorization is insufficient. Configure the actual human developers in the host's current authorization policy before enabling this integration; do not substitute a privileged fixed user ID. Node must independently verify the clicker's Developer role.
+Host injection authorizes the supplied human ID against current Hermes allowlists/pairing/explicit allow-all. An adapter-only role authorization is insufficient. Configure the actual human developers in the host's current authorization policy before enabling this integration; do not substitute a privileged fixed user ID. Node does not independently query a Developer role: its boundary is Discord command defaults/overrides plus owner-bound component checks. Host authorization of the actual human is independent and still required.
 
 **Acceptance is asynchronous, not evidence of a completed turn or successful Discord delivery.** The caller must not describe 202 as completed work. Actual replies remain visible in the designated thread; no extra human confirmation or follow-up command is required to initiate the run.
+
+Opening context must be nonempty and at most 60,000 Unicode code points (Python string length); the encoded JSON request must also fit the 256 KiB HTTP limit. Node checks both limits before creating a forum post and never silently truncates full context.
 
 The plugin verifies the target using the connected Discord SDK, requires `discord.Thread`, and checks its actual parent ID against `allowed_parent_ids` (default: `["1560943737688039474"]`). The existing label development thread is NOT a Start destination. Node owns forum creation, developer ping, and persisting one unique thread per claimed todo attempt; the plugin only admits the supplied context there. SQLite stores a fingerprint and status per thread: identical repeated requests do not enqueue another turn; changed context/user for a claimed thread fails. A crash between reserving and enqueueing leaves `pending` (HTTP 409 on replay), deliberately requiring operator reconciliation rather than silently starting duplicate coding work. `rejected` also returns HTTP 409. Reusing a thread that already has a Hermes conversation **continues** that conversation; the Node-created fresh thread is the freshness fence. No supported reset primitive is used or claimed here.
 
@@ -58,7 +60,7 @@ Only these top-level keys are accepted. Identifiers must be nonempty strings; ea
 HTTP 200:
 
 ```json
-{"guidance_version":"1","assessment":{"decisions":[{"action":"clarify","confidence":0.6,"reason":"Insufficient reproduction information"}]}}
+{"guidance_version":"2","assessment":{"decisions":[{"action":"clarify","confidence":0.6,"reason":"Insufficient reproduction information"}]}}
 ```
 
 The `assessment` object matches the bot's `src/todo/assessment.ts` decision schema: create, merge, dismiss, clarify; features must be blue; exact supplied label/todo IDs only; merge targets must be open/in_progress/blocked. The decision schema has no report ID, so Node must assess one report at a time and bind its response to that report; plural inputs do not provide report-to-decision correlation. Node still runs its own validation/confidence threshold before any PocketBase mutation. Confidence must be a finite number in the inclusive range 0..1; NaN and either infinity are rejected with HTTP 422. Successful HTTP output uses strict JSON serialization (no nonstandard NaN/Infinity literals). Low confidence is not automatically accepted by this bridge.
@@ -75,7 +77,9 @@ const payload = {
 // POST payload, then return response.assessment to validateAssessment().
 ```
 
-Host-owned assessment guidance is the committed `guidance.v1.json`. Bump its version and purpose audit string together for policy changes. The caller's system prompt is not accepted as host instructions. Keep Node-reviewed guidance consistent with this version; do not silently assume its prompt text was forwarded.
+Host-owned assessment guidance is the committed `guidance.v2.json` (version `2`), loaded by the actual structured LLM call with purpose `discord-todo.assess.v2`. Bump its version and purpose audit string together for policy changes. The caller's system prompt is not accepted as host instructions. Keep Node-reviewed guidance consistent with this version; editing Node's local guidance alone does not change bridge policy.
+
+Policy v2: bugs are **red** for an economy exploit or an affected player unable to play; **blue** only when mildly disruptive **and** not expected gameplay; **yellow** between those definitions. Features default to blue and current validation requires blue. Split independent issues; merge only the same underlying actionable problem, not merely the same plugin. Use the supplied Untriaged label if the plugin cannot be identified. Confidence below `0.7` requires human intervention with no low-confidence association/label committed by Node. Incomplete evidence requires explicit uncertainty and clarification where it affects the decision. Reasons are concise, auditable evidence summaries, not chain-of-thought. The JSON decision schema is unchanged.
 
 Failures: 401 missing/wrong/weak bridge token; 413 oversized body; 422 invalid input or invalid model output; 503 unavailable provider/transport/missing starter. No raw provider errors or secret-bearing exception text are returned. No todo collections are created or mutated.
 
@@ -105,7 +109,7 @@ From any directory:
 /home/mothermouse/.hermes/hermes-agent/.hermes/bin/hermes plugins doctor /home/mothermouse/projects/hermes-discord-todo-bridge/custom_plugins/discord-todo-assessment --ci
 ```
 
-Tests exercise actual aiohttp loopback HTTP and injected provider fixtures. The host integration test uses the **installed** PluginContext, GatewayRunner, BasePlatformAdapter, authorization, durable sessions and transcript path, replacing only the model boundary and external Discord transport. It configures a real guild + forum-parent route to a served coding profile and proves that injection runs in that profile, empty initial history, opening prompt context, reply to the target thread, and a human follow-up reusing the same durable session ID with both turns read back from the real durable transcript. The model fixture returns `agent_persisted=False` so the gateway actually writes the user/assistant rows; omitting this flag can yield a misleading empty transcript. It does not pretend to test Discord's remote API or a live model.
+The complete suite passes **12 tests** on the installed runtime, including policy regressions that inspect instructions actually delivered to `ctx.llm`, returned guidance version `2` and purpose `discord-todo.assess.v2`. These policy tests were observed failing against v1 before the policy change. Tests exercise actual aiohttp loopback HTTP and injected provider fixtures. The host integration test uses the **installed** PluginContext, GatewayRunner, BasePlatformAdapter, authorization, durable sessions and transcript path, replacing only the model boundary and external Discord transport. It configures a real guild + forum-parent route to a served coding profile and proves that injection runs in that profile, empty initial history, opening prompt context, reply to the target thread, and a human follow-up reusing the same durable session ID with both turns read back from the real durable transcript. The model fixture returns `agent_persisted=False` so the gateway actually writes the user/assistant rows; omitting this flag can yield a misleading empty transcript. It does not pretend to test Discord's remote API or a live model.
 
 The installed PM runtime does not include pytest, so this focused artifact uses stdlib unittest without modifying any active PM environment.
 

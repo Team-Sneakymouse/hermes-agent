@@ -135,12 +135,12 @@ async def assess(ctx, payload):
                 raise ValueError("Missing string identifier")
     if len(json.dumps(payload).encode()) > 262144:
         raise ValueError("Input too large")
-    guidance = json.loads(Path(__file__).with_name("guidance.v1.json").read_text())
+    guidance = json.loads(Path(__file__).with_name("guidance.v2.json").read_text())
     result = await ctx.llm.acomplete_structured(
         instructions=guidance["instructions"],
         input=[{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}],
         json_schema=SCHEMA, schema_name="discord_todo_assessment",
-        purpose="discord-todo.assess.v1", temperature=0.0, max_tokens=6000, timeout=90,
+        purpose="discord-todo.assess.v2", temperature=0.0, max_tokens=6000, timeout=90,
     )
     from jsonschema import validate, ValidationError
     try:
