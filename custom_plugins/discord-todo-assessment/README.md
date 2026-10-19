@@ -1,5 +1,33 @@
 # Discord todo bridge (not deployed)
 
+## Manual retrospective extension
+
+New bearer-authenticated routes under `/plugins/discord-todo/v1/retrospective/`:
+
+- `start`: `{run_id,thread_id,user_id,guild_id,corrections,context}`; 202 returns accepted/run/thread/baseline version/hash. Requires 1–100 distinct correction IDs, total canonical input ≤200,000 bytes and actual fetched Discord thread guild/allowed parent matching. The bot MUST create a fresh forum thread; the SDK does not reset existing conversations. Identical run replays do not dispatch again; changed identity/evidence is rejected.
+- `status`: `{run_id,user_id}`; investigating has no proposal. Proposed returns complete proposal, full SHA-256 hash and untruncated unified diff. Applied returns top-level receipt fields plus the exact persisted `receipt` object.
+- `prepare-approval`: `{run_id,user_id,proposal_hash}`; same Bearer authentication. One SQLite immediate transaction checks full hash, owner and current baseline then freezes the exact proposal in `approval_pending`. Later draft calls reject. No policy activation occurs. Exact freeze replay is safe; applied replay returns the durable receipt fields. Node must prepare before PB approve-begin, and display the same complete proposal/diff plus genuine-click Approve retry while pending. Refresh cannot activate it.
+- `approve`: `{run_id,user_id,proposal_hash}`; only the trusted bot's explicit human approval interaction may call this. Returns `{run_id,state:'applied',proposal_hash,policy_version,policy_hash}`. Wrong owner/hash or stale baseline fails closed (422). Exact receipt replay remains valid after later policy revisions.
+
+A 256-bit random per-run capability is included ONLY in the trusted injected opening instructions. `discord_todo_retrospective_propose({capability,proposal})` uses it to find the persisted run; it accepts no model-selected run/user ownership. It can only record drafts, never activate policy. The capability is not present in start/status/approval responses. It is stored in the private run database and canonical transcript: keep these profile files private. The trusted full-agent runtime itself is not a sandbox against arbitrary local code/file access. Draft tool security does not replace the host's human authorization, profile isolation, or bridge secret boundary.
+
+Proposal shape: `{rules:[{text,evidence_ids:[id]}],memory:[{text,evidence_ids:[id]}],summary:string}`. Arrays are complete replacement learned-policy state. Existing unchanged entries may retain historical evidence; new entries must cite frozen correction IDs. All removals are visible in the complete diff. Explicit no-change proposals need approval too, and preserve policy version/hash only when the arrays actually match the baseline.
+
+`plugin-data/discord-todo-assessment/policy.sqlite3` owns active learned policy, immutable-by-API history and durable run/proposal/approval receipts. Policy activation and run receipt use one `BEGIN IMMEDIATE` SQLite transaction with baseline CAS. Crash between reservation and dispatch leaves `pending`; reconcile rather than blindly redispatch. An asynchronous accepted dispatch is not proof that the host authorized/executed a turn; inspect normal gateway output and the thread.
+
+HTTP assessment reads the same database and actually supplies approved rules/memory to the existing tool-free structured call, under immutable guidance v2. Initial version is `2`; changed policy versions are `2.learned.<full proposal hash>`. Core guidance and severity/confidence validation are not editable by proposals. There is no retrospective tool or agent loop in ordinary assessment.
+
+**Profile admission requirement:** run the bridge and draft tool in the same owning profile and install/enable the plugin there. A forum routed to another profile must have matching plugin/policy ownership; do not assume independently installed profiles share a policy database. The test configures the actual served coding profile and verifies same-profile tool persistence. No installation/configuration/restart is performed here.
+
+### Retrospective verification
+
+```sh
+hermes --run-module unittest discover -s /home/mothermouse/projects/hermes-todo-retrospective/custom_plugins/discord-todo-assessment -p 'test_*.py' -v
+```
+
+Installed-runtime suite: 16 tests including all original 12, actual aiohttp HTTP, real SQLite reopen, approval/hash/owner/CAS/no-change regressions, approved memory in actual structured-call arguments, and real GatewayRunner canonical question → human follow-up → registered draft-handler persistence. Model generation and external Discord remain explicit recording fixtures; no live model, Discord post or repository investigation was executed. Full output: `/home/mothermouse/.hermes/cache/scratch/todo-retrospective-hermes-tests.log`.
+
+
 A directory plugin using the installed Hermes plugin APIs. No core patches, runtime rebinding, provider credentials in Node, new paid credential, or Discord bot-message admission is required.
 
 ## Compatibility fence — important
