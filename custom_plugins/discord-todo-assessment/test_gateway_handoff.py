@@ -44,7 +44,13 @@ class RecordingDiscord(BasePlatformAdapter):
         return {"id": chat_id, "type": "thread"}
 
 class HandoffTests(unittest.IsolatedAsyncioTestCase):
+    async def test_retrospective_question_followup_and_draft_tool_persist_in_real_host(self):
+        await self.exercise_handoff(retrospective=True)
+
     async def test_forum_route_to_coding_profile_then_human_reply_uses_same_durable_session(self):
+        await self.exercise_handoff(retrospective=False)
+
+    async def exercise_handoff(self, retrospective):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             coding_home = home / "profiles" / "coding"
@@ -70,6 +76,16 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
                 async def model_boundary(message, context_prompt, history, source, session_id, **kwargs):
                     turns.append(SimpleNamespace(message=message, history=list(history), session_id=session_id, home=get_hermes_home(), source=source))
                     reply = f"fixture-reply-{len(turns)}"
+                    if retrospective:
+                        reply = "Why was this classification changed?" if len(turns) == 1 else "Draft recorded; awaiting explicit bot approval."
+                        if len(turns) == 2:
+                            import json
+                            capability = str(history).split('DRAFT_CAPABILITY=')[1].split('\\n')[0]
+                            from tools.registry import registry
+                            entry = registry.get_entry("discord_todo_retrospective_propose", scope=str(coding_home))
+                            self.assertIsNotNone(entry)
+                            tool_result = json.loads(entry.handler(dict(capability=capability, proposal=dict(rules=[], memory=[dict(text="Developer clarified the evidence.", evidence_ids=["correction1"])], summary="Clarified report interpretation"))))
+                            self.assertEqual(tool_result["state"], "proposed")
                     messages = list(history) + [{"role": "user", "content": message},
                                                 {"role": "assistant", "content": reply}]
                     return {"final_response": reply, "messages": messages, "tools": [],
@@ -86,6 +102,14 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
                 assert spec is not None and spec.loader is not None
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
+                start_ingress = module.start
+                if retrospective:
+                    with patch.dict(os.environ, {"HERMES_HOME": str(coding_home)}):
+                        module.register(ctx)
+                    store = module.RetrospectiveStore(coding_home / "plugin-data/discord-todo-assessment/policy.sqlite3")
+                    async def retrospective_ingress(ctx, payload, **options):
+                        return await module.retrospective_start(ctx, dict(payload, run_id="retro1", guild_id=GUILD, corrections=[dict(id="correction1")]), fetch_thread=options["fetch_thread"], allowed_parents=options["allowed_parents"], store=store)
+                    start_ingress = retrospective_ingress
                 async def fetch_thread(thread_id):
                     return SimpleNamespace(id=int(thread_id), parent_id=int(PARENT), guild=SimpleNamespace(id=int(GUILD)))
                 async def settle():
@@ -95,7 +119,7 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
                 with patch("hermes_cli.plugins._known_plugin_managers", return_value=[manager]):
                     runner._install_plugin_message_injector()
                     try:
-                        result = await module.start(ctx, {"thread_id": THREAD, "user_id": USER,
+                        result = await start_ingress(ctx, {"thread_id": THREAD, "user_id": USER,
                             "context": "Todo 42: investigate failing login; create a PR, do not deploy."},
                             fetch_thread=fetch_thread, allowed_parents=[PARENT], state_path=home / "starts.sqlite3")
                         self.assertEqual(result["status"], "accepted")
@@ -108,7 +132,7 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(turns[0].source.scope_id, GUILD)
                         self.assertEqual(turns[0].source.parent_chat_id, PARENT)
                         self.assertIn("Todo 42: investigate failing login", turns[0].message)
-                        self.assertEqual(adapter.sent, [(THREAD, "fixture-reply-1")])
+                        self.assertEqual(adapter.sent, [(THREAD, "Why was this classification changed?" if retrospective else "fixture-reply-1")])
                         source = adapter.build_source(chat_id=THREAD, chat_type="thread", thread_id=THREAD, user_id=USER,
                             parent_chat_id=PARENT, guild_id=GUILD, scope_id=GUILD)
                         await adapter.handle_message(MessageEvent(text="Human reply: add a regression test.", source=source))
@@ -121,15 +145,20 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
                         self.assertIn("Human reply: add a regression test.", str(persisted))
                         self.assertIn("Todo 42: investigate failing login", str(persisted))
                         self.assertIn("Human reply: add a regression test.", turns[1].message)
-                        self.assertEqual(adapter.sent[-1], (THREAD, "fixture-reply-2"))
-                        again = await module.start(ctx, {"thread_id": THREAD, "user_id": USER,
+                        self.assertEqual(adapter.sent[-1], (THREAD, "Draft recorded; awaiting explicit bot approval." if retrospective else "fixture-reply-2"))
+                        if retrospective:
+                            reopened = module.RetrospectiveStore(store.path)
+                            self.assertEqual(reopened.status("retro1", USER)["state"], "proposed")
+                            self.assertEqual(reopened.active()["version"], "2")
+                            return
+                        again = await start_ingress(ctx, {"thread_id": THREAD, "user_id": USER,
                             "context": "Todo 42: investigate failing login; create a PR, do not deploy."},
                             fetch_thread=fetch_thread, allowed_parents=[PARENT], state_path=home / "starts.sqlite3")
                         self.assertEqual(again["status"], "accepted")
                         await settle()
                         self.assertEqual(len(turns), 2, "a duplicate request must not run another turn")
                         next_thread = "444444444444444444"
-                        second = await module.start(ctx, {"thread_id": next_thread, "user_id": USER,
+                        second = await start_ingress(ctx, {"thread_id": next_thread, "user_id": USER,
                             "context": "Todo 43: implement a different feature."},
                             fetch_thread=fetch_thread, allowed_parents=[PARENT], state_path=home / "starts.sqlite3")
                         self.assertEqual(second["status"], "accepted")
