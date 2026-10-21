@@ -5803,8 +5803,8 @@ class DiscordAdapter(DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceIn
         self, chat_id: str, question: str, choices: Optional[list], clarify_id: str,
         session_key: str, metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
-        """Clarify prompt: one button per choice plus ``✏️ Other`` (text-capture); with no choices the
-        gateway's text-intercept captures the next message. Dict choices (LLMs emit
+        """Clarify prompt: full numbered options in content, numeric buttons plus ``✏️ Other``;
+        with no choices the gateway's text-intercept captures the next message. Dict choices (LLMs emit
         ``[{"description": ...}]``) are unwrapped via ``label``/``description``/``text``/``title``."""
         def _flatten_choice(c):
             if c is None:
@@ -5829,7 +5829,9 @@ class DiscordAdapter(DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceIn
             embed = discord.Embed(
                 title=_truncate_discord_component_text(f"❓ {clarify_title}", _DISCORD_EMBED_TITLE_LIMIT), color=discord.Color.orange())
             # 5 buttons × 5 rows = 25; one slot is reserved for "Other".
-            clean_choices = [s for s in (_flatten_choice(c) for c in (choices or [])) if s][:24]
+            clean_choices = [s for s in (_flatten_choice(c) for c in (choices or [])) if s]
+            if len(clean_choices) > 24:
+                raise ValueError("Discord clarification supports at most 24 choices; no options were sent")
             if clean_choices:
                 hint = t("platform.discord.prompt.clarify_hint_buttons")
                 view = ClarifyChoiceView(
@@ -5840,9 +5842,16 @@ class DiscordAdapter(DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceIn
             else:
                 hint = t("platform.discord.prompt.clarify_hint_text")
                 view = None
-            content = self._self_contained_prompt_content(
-                f"❓ **{clarify_title}**", str(question or "").strip(), tail=f"\n\n{hint}",
-            )
+            body = str(question or "").strip()
+            if clean_choices:
+                body += "\n\n" + "\n".join(f"{i + 1}. {choice}" for i, choice in enumerate(clean_choices))
+                content = f"❓ **{clarify_title}**\n\n{body}\n\n{hint}"
+                if utf16_len(content) > self.MAX_MESSAGE_LENGTH:
+                    raise ValueError("Discord clarification exceeds the 2000 UTF-16 unit message limit; no options were sent")
+            else:
+                content = self._self_contained_prompt_content(
+                    f"❓ **{clarify_title}**", body, tail=f"\n\n{hint}",
+                )
             send_kwargs = {"content": content, "embed": embed}
             if view:
                 send_kwargs["view"] = view
@@ -6944,7 +6953,7 @@ def _define_discord_view_classes() -> None:
             self.clarify_id = clarify_id
             for index, choice in enumerate(self.choices):
                 button = discord.ui.Button(
-                    label=self._button_label(index, choice), style=discord.ButtonStyle.primary,
+                    label=str(index + 1), style=discord.ButtonStyle.primary,
                     custom_id=f"clarify:{clarify_id}:{index}",
                 )
                 button.callback = self._make_choice_callback(index, choice)
@@ -6956,27 +6965,6 @@ def _define_discord_view_classes() -> None:
             other_btn.callback = self._on_other
             self.add_item(other_btn)
 
-        @staticmethod
-        def _button_label(index: int, choice: str) -> str:
-            """``"N. <choice>"`` within Discord's 80-char (UTF-16) label cap.
-            Mobile wraps early, so long choices cut at a word boundary in the trailing half, else a
-            soft boundary (``- , . )``, inclusive), else hard."""
-            prefix = f"{index + 1}. "
-            budget = _DISCORD_BUTTON_LABEL_LIMIT - utf16_len(prefix)
-            if utf16_len(choice) <= budget:
-                return f"{prefix}{choice}"
-            truncated = _prefix_within_utf16_limit(choice, max(0, budget - utf16_len(_DISCORD_ELLIPSIS))).rstrip()
-            cut_at = -1
-            space = truncated.rfind(" ")
-            if space >= len(truncated) // 2:
-                cut_at = space
-            if cut_at < 0:
-                latest_soft = max((truncated.rfind(s) for s in ("-", ",", ".", ")")), default=-1)
-                if latest_soft >= len(truncated) // 2:
-                    cut_at = latest_soft + 1
-            if cut_at > 0:
-                truncated = truncated[:cut_at]
-            return f"{prefix}{truncated.rstrip() + _DISCORD_ELLIPSIS}"
 
         def _make_choice_callback(self, index: int, choice: str):
             async def _callback(interaction: "discord.Interaction"):
