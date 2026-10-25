@@ -20,6 +20,16 @@ from contextlib import contextmanager
 def register(ctx):
     from hermes_constants import get_hermes_home
     policy = ConversationPolicy(get_hermes_home() / "plugin-data/discord-conversations/associations.sqlite3")
+    channels = ctx.get_config("auto_thread_channels", None)
+    if channels is not None:
+        if not isinstance(channels, list) or any(
+            not isinstance(channel, str) or not channel.isascii() or not channel.isdecimal()
+            for channel in channels
+        ):
+            raise ValueError("auto_thread_channels must be a list of explicit channel ID strings")
+        channels = frozenset(channels)
+        ctx.register_hook("gateway_auto_thread",
+                          lambda context, **kwargs: context.channel_id in channels if context.platform == "discord" else None)
     if ctx.get_config("require_inline_mention", True):
         ctx.register_hook("gateway_message_admission", admission)
     if ctx.get_config("recent_channel_sessions", True):
