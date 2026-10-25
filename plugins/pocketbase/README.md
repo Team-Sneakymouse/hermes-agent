@@ -67,8 +67,8 @@ cutoff and explicitly lists its one ID.
 
 Snapshots expire after five minutes, are process-local and single-use, and bind
 profile, conversation identity, host, credentials, collection ID, operation and schema digest.
-For API-server turns, preview ownership uses the host-bound session ID plus its
-principal/transport scope, not the per-run approval key. Human approvals remain
+For API-server turns, preview ownership uses the host-bound session ID (upstream no
+longer provides a per-caller principal), not the per-run approval key. Human approvals remain
 isolated to the current run. Without a bound API conversation ID, previews retain
 run-local ownership and cannot cross runs. Other surfaces retain their existing
 approval-session scope. Collection lists explicitly default to page 1 / 100 items.
