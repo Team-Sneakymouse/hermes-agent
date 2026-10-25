@@ -10,6 +10,14 @@ Gateway policies can register these public hooks with `ctx.register_hook`. No pl
 
 Return `None` or `{"action": "allow"}` to retain built-in behavior; `{"action": "block"}` vetoes the message. Any veto wins. Invalid results and callback exceptions fail closed. Async callbacks run on the gateway loop and are awaited. Admission cannot bypass built-in channel/identity policy. Native slash interactions are commands, not incoming text messages, and do not require a textual mention.
 
+## Auto-thread preference
+
+`gateway_auto_thread(context: AutoThreadContext)` runs on Discord ingress after admission and mention/channel gates, before native thread creation. The frozen context contains only `platform`, exact parent `channel_id`, routed `profile`, and `default_enabled` (the native global preference). No native SDK handles or mutable source objects are exposed. Like the other typed conversation hooks, it requires `plugins.isolation: in_process`; host mode supplies placeholders and the isolation audit reports degradation.
+
+Return `None` to abstain, or an exact `bool` to override the preference. No decisions preserve the native value; multiple decisions must agree. Non-booleans (including integers), conflicts, callback errors and timeouts fail closed with an error, not an inline fallback. Async callbacks are awaited using the existing policy-hook timeout contract. As with other async-dispatched hooks, synchronous callbacks execute inline and are not timeout-bounded; keep them short and non-blocking. Dispatch uses the canonical routed profile, not the receiving transport profile.
+
+This is a preference, never authorization or a request to create a thread directly. DMs and existing threads bypass it; native reply-message, voice-linked, `no_thread_channels` and free-response exclusions still win. Mention requirements, core creation/failure handling, starter deduplication and thread/session routing remain unchanged. The concrete consumer is the opt-in `discord-conversations` channel allowlist.
+
 ## Routing
 
 `gateway_session_route(context: RouteContext, services: RoutingServices)` runs before Discord text batching and before base-adapter busy/session guards (including native command interactions). `context.source` is a detached, read-only-by-contract `SessionSource`; other fields are `original_content`, `base_session_key` (canonical key before a lane), and `shared_channel`.

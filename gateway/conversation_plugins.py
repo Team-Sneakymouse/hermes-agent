@@ -50,6 +50,26 @@ async def admit_message(context, source):
 
 
 @dataclass(frozen=True)
+class AutoThreadContext:
+    platform: str
+    channel_id: str
+    profile: str | None
+    default_enabled: bool
+
+
+async def auto_thread_preference(context, source):
+    """Only preference is extensible; native eligibility and creation stay in core."""
+    from hermes_cli.plugins import ainvoke_hook
+    with plugin_profile_scope(source):
+        results = await ainvoke_hook("gateway_auto_thread", context=context)
+    if any(type(result) is not bool for result in results):
+        raise ValueError("gateway_auto_thread requires None or bool")
+    if len(set(results)) > 1:
+        raise ValueError("conflicting plugin auto-thread preferences")
+    return results[0] if results else context.default_enabled
+
+
+@dataclass(frozen=True)
 class RouteContext:
     source: SessionSource  # detached snapshot; read-only by contract
     original_content: str

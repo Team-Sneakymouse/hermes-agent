@@ -6256,6 +6256,10 @@ class DiscordAdapter(DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceIn
                 is_free_channel and not self._discord_free_response_auto_thread()
             )
             auto_thread = self._extra_or_env_flag("auto_thread", "DISCORD_AUTO_THREAD", "true", truthy=True)
+            from gateway.conversation_plugins import AutoThreadContext, auto_thread_preference
+            auto_thread = await auto_thread_preference(
+                AutoThreadContext(self.platform.value, str(message.channel.id),
+                                  _admission_source.profile, auto_thread), _admission_source)
             is_reply_message = getattr(message, "type", None) == discord.MessageType.reply
             if auto_thread and not skip_thread and not is_voice_linked_channel and not is_reply_message:
                 thread = await self._auto_create_thread(message)
