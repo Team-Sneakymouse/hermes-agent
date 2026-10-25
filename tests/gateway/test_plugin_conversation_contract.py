@@ -166,7 +166,7 @@ async def test_reset_observer_has_source_channel_and_canonical_keys(monkeypatch)
     import hermes_cli.plugins as sdk
     runner = _make_runner()
     event = _make_event("/new")
-    import hermes_cli.lifecycle as lifecycle
+    from hermes_cli import lifecycle
     observed = []
     monkeypatch.setattr(lifecycle, "_observe", lambda name, **kwargs: observed.append(name))
     seen = []
@@ -199,7 +199,7 @@ async def test_resolved_session_id_is_bound_before_streaming(monkeypatch):
     monkeypatch.setattr(sdk, "ainvoke_hook", hook)
     source = SessionSource(Platform.DISCORD, "1", message_id="10")
     entry = SimpleNamespace(session_key="key", session_id="compressed-tip")
-    runner = SimpleNamespace(_recover_telegram_topic_thread_id=lambda source: None,
+    runner = SimpleNamespace(_recover_telegram_lobby_thread_id=lambda source: None,
                              async_session_store=SimpleNamespace(get_or_create_session=AsyncMock(return_value=entry)),
                              _cache_session_source=lambda *args: None, _is_telegram_topic_lane=lambda source: False)
     event = SimpleNamespace(metadata={}, internal=False)

@@ -16,12 +16,12 @@ import {
   sharedMetricsProfileRequester
 } from '@/store/shared-metrics'
 
-const CHOICES: readonly SharedMetricsChoice[] = ['share', 'local', 'off']
+const CHOICES: readonly SharedMetricsChoice[] = ['share', 'off']
 
 /**
  * The first-run shared-metrics offer, in the composer status stack beside the
  * free-tier strip: it never blocks the composer or takes focus, and it stays
- * until one of the three equal answers is saved (the backend's `decided` is
+ * until one of the two equal answers is saved (the backend's `decided` is
  * the only latch). "Details" opens the full explainer the host paints.
  */
 export function SharedMetricsConsentStrip() {
@@ -32,10 +32,7 @@ export function SharedMetricsConsentStrip() {
   const reask = useStore($sharedMetricsConsent)?.reask === true
   const [saving, setSaving] = useState(false)
 
-  const scopedRequest = useMemo(
-    () => sharedMetricsProfileRequester(requestGateway, profile),
-    [profile, requestGateway]
-  )
+  const scopedRequest = useMemo(() => sharedMetricsProfileRequester(requestGateway, profile), [profile, requestGateway])
 
   const choose = async (choice: SharedMetricsChoice) => {
     setSaving(true)

@@ -102,7 +102,7 @@ def test_plugin_passes_actual_doctor_validation(tmp_path):
     result = subprocess.run(
         [sys.executable, "-m", "hermes_cli.main", "plugins", "doctor",
          str(root / "custom_plugins/discord-conversations"), "--ci"],
-        cwd=root,
+        check=False, cwd=root,
         env={**os.environ, "HERMES_HOME": str(home),
              "HERMES_BUNDLED_PLUGINS": str(bundled),
              "HERMES_ENABLE_PROJECT_PLUGINS": "0"},
@@ -192,7 +192,7 @@ async def test_reset_boundary_preserves_following_origin_and_fences_old_reply(tm
     from hermes_constants import get_hermes_home
     from tests.gateway.test_session_model_reset import _make_runner
     import hermes_cli.plugins as sdk
-    import hermes_cli.lifecycle as lifecycle
+    from hermes_cli import lifecycle
     policy = load_plugin().ConversationPolicy(tmp_path / "index.sqlite3")
     source = SessionSource(Platform.DISCORD, "1", user_id="42", chat_type="group", message_id="10")
     base = build_session_key(source, False)

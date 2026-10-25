@@ -4,7 +4,7 @@ import json
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from zoneinfo import ZoneInfo
 
 from .client import PocketBaseError
@@ -45,9 +45,9 @@ class PocketBaseService:
         identity = ("approval", get_current_session_key())
         if get_session_env("HERMES_SESSION_PLATFORM") == "api_server" and get_session_env("HERMES_SESSION_ID"):
             # API approval keys rotate per run; preview ownership follows the host-bound conversation.
-            identity = ("api_server", get_session_env("HERMES_SESSION_ID"),
-                        get_session_env("HERMES_BROWSER_CONTROL_PRINCIPAL"),
-                        get_session_env("HERMES_BROWSER_CONTROL_TRANSPORT_FAMILY"))
+            # API turns carry no per-caller principal (upstream removed browser-control identity),
+            # so execution still needs a human approval in the executing run.
+            identity = ("api_server", get_session_env("HERMES_SESSION_ID"))
         return (str(get_hermes_home()), identity, client.host,
                 fingerprint([client.username, client.password]))
 
@@ -127,7 +127,7 @@ class PocketBaseService:
             cutoff = datetime.fromisoformat(args["cutoff"])
             if cutoff.tzinfo is None or cutoff.utcoffset() != cutoff.astimezone(zone).utcoffset():
                 raise ValueError("Cutoff must include an offset matching the specified timezone")
-            cutoff_utc = cutoff.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + "Z"
+            cutoff_utc = cutoff.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + "Z"
             filter_text = f'{field} < "{cutoff_utc}"'
             if args.get("filter"):
                 filter_text = f'({args["filter"]}) && ({filter_text})'

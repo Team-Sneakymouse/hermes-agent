@@ -13,7 +13,7 @@ from plugins.pocketbase.client import PocketBaseClient
 from tools import approval, approval_context
 
 
-def run_turn(service, operation, args, *, run_id, session_id="conversation-a", principal="client-a", transport="api_server", notify=None):
+def run_turn(service, operation, args, *, run_id, session_id="conversation-a", notify=None):
     owner = SimpleNamespace(
         _profile_scope=lambda profile: nullcontext(),
         _bind_api_server_session=APIServerAdapter._bind_api_server_session,
@@ -24,7 +24,6 @@ def run_turn(service, operation, args, *, run_id, session_id="conversation-a", p
         gateway_session_key=None, declared_selected=False, user_message="PocketBase operation",
         conversation_history=[], session_history_delivery=True,
         agent_kwargs={"room_dispatch": None}, request_profile=None,
-        browser_control_principal=principal, browser_control_transport_family=transport,
     )
     agent = SimpleNamespace(run_conversation=lambda **kwargs: operation(args))
     api = SimpleNamespace(_publish_turn_process_ownership=lambda *args: None,
@@ -65,8 +64,7 @@ def test_preview_survives_two_api_runs_but_requires_second_run_human_approval(ba
     assert result["data"][expected[0]] == expected[1]
 
 
-@pytest.mark.parametrize("owner", [{"session_id": "conversation-b"}, {"principal": "client-b"}, {"transport": "other"}])
-def test_api_preview_rejects_changed_authenticated_conversation(owner):
+def test_api_preview_rejects_changed_conversation():
     c = PocketBaseClient("https://example.invalid", "test-user", "test-password")
     service = PocketBaseService(lambda: c)
     preview = run_turn(service, lambda args: service._save(c, args),
@@ -74,7 +72,7 @@ def test_api_preview_rejects_changed_authenticated_conversation(owner):
     with pytest.raises(ValueError, match="changed operation scope"):
         run_turn(service, lambda args: service._take(c, args, "delete"),
                  {"action": "delete", "collection": "notes", "snapshot_id": preview["snapshot_id"]},
-                 run_id="execute", **owner)
+                 run_id="execute", session_id="conversation-b")
 
 
 def test_unbound_api_conversation_cannot_share_previews_between_runs():
