@@ -1489,10 +1489,12 @@ class DiscordAdapter(DiscordAuthorizationMixin, DiscordMediaMixin, DiscordThread
                 finally:
                     self._client = None
                     self._ready_event.clear()
+            from plugins.platforms.discord.adapter_receipts import delivery_receipt_trace
             self._client = commands.Bot(
                 command_prefix="!",  # Not really used, we handle raw messages
                 intents=intents,
                 allowed_mentions=_build_allowed_mentions(getattr(self.config, "extra", None)),
+                http_trace=delivery_receipt_trace(),
                 **proxy_kwargs_for_bot(proxy_url),
             )
             # Fresh connection, fresh dispatch-side silence window: the previous client's last
@@ -3305,8 +3307,6 @@ class DiscordAdapter(DiscordAuthorizationMixin, DiscordMediaMixin, DiscordThread
                     else:
                         raise
                 message_ids.append(str(msg.id))
-                from gateway.conversation_plugins import report_delivery
-                await report_delivery(channel.id, (str(msg.id),))
             # Track the last sent message for history backfill (skips the full history scan).
             if message_ids:
                 _target_id = thread_id or chat_id
@@ -3478,8 +3478,6 @@ class DiscordAdapter(DiscordAuthorizationMixin, DiscordMediaMixin, DiscordThread
                     self._last_overflow_preview[_preview_key] = truncated
                 else:
                     raise
-            from gateway.conversation_plugins import report_delivery
-            await report_delivery(channel.id, (message_id,), "edit")
             result = SendResult(success=True, message_id=message_id)
             if finalize:
                 await self._record_response_async((metadata or {}).get("reply_to_message_id"), result, content, True)
@@ -3525,8 +3523,6 @@ class DiscordAdapter(DiscordAuthorizationMixin, DiscordMediaMixin, DiscordThread
                 "[%s] Overflow split: first-chunk edit failed: %s", self.name, e, exc_info=True,
             )
             return SendResult(success=False, error=str(e))
-        from gateway.conversation_plugins import report_delivery
-        await report_delivery(channel.id, (message_id,), "edit")
         continuation_ids: list[str] = []
         delivered = 1
         prev_msg = msg
@@ -3568,7 +3564,6 @@ class DiscordAdapter(DiscordAuthorizationMixin, DiscordMediaMixin, DiscordThread
                     )
             new_id = str(sent.id)
             continuation_ids.append(new_id)
-            await report_delivery(channel.id, (new_id,))
             delivered += 1
             prev_msg = sent
         last_id = continuation_ids[-1] if continuation_ids else message_id

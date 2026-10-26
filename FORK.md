@@ -9,16 +9,18 @@ adding a new integration.
 | Delta | Where | Conflicts with upstream? | Retire when |
 |---|---|---|---|
 | Our plugins | `custom_plugins/*`, `plugins/pocketbase/` | Never (new paths) | n/a |
-| Conversation hook seam | `gateway/conversation_plugins.py` (contract) + call sites below | Yes — the only real conflict surface | Upstream ships equivalent admission / routing / delivery-receipt hooks |
+| Conversation hook seam | `gateway/conversation_plugins.py` (contract), `plugins/platforms/discord/adapter_receipts.py` (Discord receipts) + call sites below | Yes — the only real conflict surface | Upstream ships equivalent admission / routing / delivery-receipt hooks |
 | Discord clarify fix | `plugins/platforms/discord/adapter.py` (PR #5) | Occasionally | Upstream fixes lossless clarify options |
 
 Hook call sites in upstream files (the conflict checklist):
 `gateway/platforms/base.py`, `gateway/run_turn_prepare.py`, `gateway/session.py`,
 `gateway/session_recovery.py`, `gateway/slash_commands_session.py`, `hermes_cli/plugins.py`,
 `hermes_cli/plugins_dispatch.py`, `hermes_cli/plugin_isolation.py`,
-`plugins/platforms/discord/adapter.py`, `plugins/platforms/discord/adapter_media.py`.
+`plugins/platforms/discord/adapter.py`.
 Contract tests: `tests/gateway/test_plugin_conversation_contract.py`,
-`tests/gateway/test_discord_conversation_plugin.py`. Docs:
+`tests/gateway/test_discord_conversation_plugin.py`,
+`tests/plugins/platforms/test_discord_delivery_receipts.py` (real discord.py against a loopback
+Discord API; it lives outside `tests/gateway/` because that conftest mocks the SDK). Docs:
 `website/docs/developer-guide/gateway-conversation-plugins.md`.
 
 `git diff --stat upstream/main -- . ':!custom_plugins' ':!plugins/pocketbase'` must show only the
@@ -32,7 +34,7 @@ Merge, never rebase: rebasing rewrites our merged PRs and throws away earlier re
 git fetch upstream origin
 git switch -c chore/sync-upstream-$(date +%F) origin/main
 git merge-tree --write-tree --name-only HEAD upstream/main | grep CONFLICT   # preview
-P='conversation_plugins|conversation_lane|gateway_message_admission|gateway_session_route|gateway_delivery_receipt|prepare_conversation_route|preceding_message_ids|report_delivery|delivery_turn|bind_delivery_session|conversation_reset_boundary|plugin_profile_scope'
+P='conversation_plugins|conversation_lane|gateway_message_admission|gateway_session_route|gateway_delivery_receipt|prepare_conversation_route|preceding_message_ids|report_delivery|delivery_turn|bind_delivery_session|conversation_reset_boundary|plugin_profile_scope|delivery_receipt_trace'
 INV="$(mktemp -d)"
 git grep -c -E "$P" -- gateway hermes_cli plugins/platforms | sort > "$INV/before.txt"
 git merge --no-ff upstream/main
@@ -47,6 +49,7 @@ Verify, then open a PR into `origin/main` (title `chore(sync): merge NousResearc
 HERMES_PYTHON=.venv/bin/python scripts/run_tests.sh \
   tests/gateway/test_plugin_conversation_contract.py tests/gateway/test_discord_conversation_plugin.py \
   tests/gateway/test_discord_clarify_lossless.py tests/gateway/test_discord_clarify_buttons.py \
+  tests/plugins/platforms/test_discord_delivery_receipts.py \
   tests/plugins/test_pocketbase.py tests/plugins/test_pocketbase_api_scope.py
 for d in custom_plugins/*/; do .venv/bin/python -m unittest discover -s "$d" -p 'test_*.py'; done
 python scripts/check
@@ -55,7 +58,7 @@ python scripts/check
 (Windows: `.venv/Scripts/python.exe`; run `scripts/check` with `PYTHONUTF8=1`.) Expect `health`
 ratchet findings in upstream files: the baseline is our pre-sync `main`, so only findings in the
 fork-delta files above are ours. Windows hosts also fail a few path/file-lock tests that pass on
-Linux (`send_multiple_images` receipts, todo-assessment `test_gateway_handoff`); compare against
+Linux (`file:///C:/...` media paths, todo-assessment `test_gateway_handoff`); compare against
 `main` in a scratch worktree before blaming the sync. Then read each `custom_plugins/*/README.md` "compatibility
 fence" section and grep the merged tree for the upstream behaviour it names.
 
@@ -69,8 +72,10 @@ Don't let syncs lapse: three weeks of drift was ~9.7k commits and 5 conflicts.
   siblings. Take their side (`git checkout --theirs <file>`) and re-apply our one-liner where the
   code now lives (`git grep` for the surrounding function). Example: `_hmwa_resolve_session` moved
   from `run_turn.py` to `run_turn_prepare.py`, so `bind_delivery_session` moved with it.
-- **Put receipts inside upstream's new helpers, not their callers**, so callers upstream adds later
-  report too (e.g. `report_delivery` lives inside `_post_voice_message`).
+- **Prefer one choke point over per-path wiring.** Discord receipts come from a single
+  `http_trace` passed to `commands.Bot(...)`, not a call in every send method, so upstream can
+  rewrite or add send paths without conflicts. If a conflict ever touches that `Bot(...)` call,
+  keep the `http_trace=` kwarg.
 - **Clean auto-merges can still drop a call site.** Never skip the before/after inventory diff.
 - **Same name ≠ same feature.** Upstream's `gateway.session_ingress.admit_message` is queue
   durability, not our plugin admission veto. Read the code before retiring a hook.
