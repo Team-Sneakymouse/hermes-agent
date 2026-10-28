@@ -86,7 +86,9 @@ Don't let syncs lapse: three weeks of drift was ~9.7k commits and 5 conflicts.
   without touching our files. Example: since `5018d437cc`, `ctx.inject_message(origin=...)` is
   refused for a chat with no admitted human message, which broke the todo-assessment one-click
   start. These are deliberate security boundaries: adapt the plugin, never patch core around
-  them, and don't deploy the sync until the plugin is adapted.
+  them. If the plugin can't be adapted in time, disable it on the host
+  (`hermes plugins disable <name>`) and mark its README, rather than holding the sync back.
+  `discord-todo-assessment` has been disabled this way since the 2026-10-25 sync.
 - Keep upstream's style changes (`Set[str]` → `set[str]`, string annotations dropped) in our lines.
 
 ## Writing a new integration

@@ -1,4 +1,12 @@
-# Discord todo bridge (not deployed)
+# Discord todo bridge (disabled)
+
+**Disabled since the 2026-10-25 upstream sync. Do not enable it on a host running that sync or later.**
+Upstream's session authority (commit `5018d437cc`) refuses `ctx.inject_message(origin=...)` in a chat
+where no human message has been admitted. The Start and retrospective start endpoints inject into a
+fresh, bot-created forum thread, so on these hosts they return `False` and no turn runs. Keep the
+plugin disabled in every profile (`hermes plugins disable discord-todo-assessment`) and hide Start
+in Node until the handoff is redesigned. The likely redesign is a Hermes-owned button that the
+developer clicks, so Discord delivers a real human action. The code stays here for that redesign.
 
 ## Manual retrospective extension
 
