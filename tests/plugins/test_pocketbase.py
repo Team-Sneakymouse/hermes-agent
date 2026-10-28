@@ -452,7 +452,7 @@ def test_incomplete_duplicate_or_unbounded_selection_fails_closed(backend, bad_p
 
 def test_preview_return_mutation_cannot_change_frozen_ids(backend):
     backend["replies"] = [(200, {"token": "private-token"}), (200, SCHEMA), (200, {"id": "r1"}), (200, SCHEMA), (204, {})]
-    service, prompts = deleting_service(backend)
+    service, _prompts = deleting_service(backend)
     preview = service.records({"action": "preview_delete", "collection": "notes", "record_id": "r1"})["data"]
     preview["ids"].append("r2")
     result = service.records({"action": "delete", "collection": "notes", "snapshot_id": preview["snapshot_id"]})

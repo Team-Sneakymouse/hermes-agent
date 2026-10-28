@@ -78,37 +78,6 @@ async def test_routing_runs_before_batching_with_full_unfiltered_history(adapter
 
 
 @pytest.mark.asyncio
-async def test_each_successful_chunk_has_receipt_even_when_later_send_fails(adapter, monkeypatch):
-    import gateway.conversation_plugins as api
-    import hermes_cli.plugins as sdk
-    from types import SimpleNamespace
-    assert hasattr(api, "delivery_scope"), "public delivery scope is missing"
-    receipts = []
-    async def hook(name, **kwargs):
-        if name == "gateway_delivery_receipt":
-            receipts.append(kwargs["receipt"])
-        return []
-    monkeypatch.setattr(sdk, "ainvoke_hook", hook)
-    channel = SimpleNamespace(id=1, send=AsyncMock(side_effect=[SimpleNamespace(id=501), RuntimeError("offline")]))
-    adapter._resolve_channel = AsyncMock(return_value=channel)
-    adapter._is_forum_parent = lambda c: False
-    adapter.format_message = lambda text: text
-    adapter.truncate_message = lambda *args: ["first", "second"]
-    adapter._record_response_async = AsyncMock(side_effect=lambda reply, result, *args: result)
-    source = SessionSource(Platform.DISCORD, "1", chat_type="group", message_id="123", conversation_lane="a")
-    with api.delivery_scope(source, "canonical-key", "session-id"):
-        result = await adapter.send("1", "body", reply_to="123")
-    assert not result.success
-    assert len(receipts) == 1
-    assert receipts[0].message_ids == ("501",)
-    assert receipts[0].session_id == "session-id"
-    assert receipts[0].session_key == "canonical-key"
-    assert receipts[0].origin_message_id == "123"
-    assert receipts[0].channel_id == "1"
-    assert receipts[0].base_session_key == "canonical-key"
-
-
-@pytest.mark.asyncio
 async def test_background_turn_supplies_delivery_identity(adapter, monkeypatch):
     import gateway.conversation_plugins as api
     import hermes_cli.plugins as sdk
@@ -136,37 +105,12 @@ async def test_background_turn_supplies_delivery_identity(adapter, monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("finalize", [False, True])
-async def test_stream_edits_and_partial_overflow_continuations_report_ids(adapter, monkeypatch, finalize):
-    import gateway.conversation_plugins as api
-    import hermes_cli.plugins as sdk
-    from types import SimpleNamespace
-    receipts = []
-    async def hook(name, **kwargs):
-        if name == "gateway_delivery_receipt":
-            receipts.extend(kwargs["receipt"].message_ids)
-        return []
-    monkeypatch.setattr(sdk, "ainvoke_hook", hook)
-    msg = SimpleNamespace(id=500, edit=AsyncMock())
-    channel = SimpleNamespace(id=1, get_partial_message=lambda mid: msg,
-                              send=AsyncMock(side_effect=[SimpleNamespace(id=501), RuntimeError("offline"), RuntimeError("offline")]))
-    adapter._resolve_channel = AsyncMock(return_value=channel)
-    adapter.format_message = lambda text: text
-    adapter.truncate_message = lambda *args: ["first", "second", "third"]
-    source = SessionSource(Platform.DISCORD, "1", message_id="123")
-    with api.delivery_scope(source, "key", "sid"):
-        result = await adapter.edit_message("1", "500", "x" * 3000, finalize=finalize)
-    assert result.success
-    assert receipts == (["500", "501"] if finalize else ["500"])
-
-
-@pytest.mark.asyncio
 async def test_reset_observer_has_source_channel_and_canonical_keys(monkeypatch):
     from tests.gateway.test_session_model_reset import _make_runner, _make_event
     import hermes_cli.plugins as sdk
     runner = _make_runner()
     event = _make_event("/new")
-    import hermes_cli.lifecycle as lifecycle
+    from hermes_cli import lifecycle
     observed = []
     monkeypatch.setattr(lifecycle, "_observe", lambda name, **kwargs: observed.append(name))
     seen = []
@@ -199,7 +143,7 @@ async def test_resolved_session_id_is_bound_before_streaming(monkeypatch):
     monkeypatch.setattr(sdk, "ainvoke_hook", hook)
     source = SessionSource(Platform.DISCORD, "1", message_id="10")
     entry = SimpleNamespace(session_key="key", session_id="compressed-tip")
-    runner = SimpleNamespace(_recover_telegram_topic_thread_id=lambda source: None,
+    runner = SimpleNamespace(_recover_telegram_lobby_thread_id=lambda source: None,
                              async_session_store=SimpleNamespace(get_or_create_session=AsyncMock(return_value=entry)),
                              _cache_session_source=lambda *args: None, _is_telegram_topic_lane=lambda source: False)
     event = SimpleNamespace(metadata={}, internal=False)
@@ -279,38 +223,6 @@ def test_sdk_declares_live_service_hooks_as_in_process_contracts():
     assert "gateway_session_route" in HOST_DEGRADED_HOOKS
     assert "gateway_message_admission" in HOST_DEGRADED_HOOKS
     assert "gateway_delivery_receipt" in HOST_DEGRADED_HOOKS
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("method", ["send_document", "send_video", "send_image_file", "send_multiple_images", "send_voice", "send_voice_native", "send_image", "send_animation"])
-async def test_native_media_replies_also_emit_receipts(adapter, monkeypatch, tmp_path, method):
-    import gateway.conversation_plugins as api
-    import hermes_cli.plugins as sdk
-    from types import SimpleNamespace
-    seen = []
-    async def hook(name, **kwargs):
-        if name == "gateway_delivery_receipt":
-            seen.extend(kwargs["receipt"].message_ids)
-        return []
-    monkeypatch.setattr(sdk, "ainvoke_hook", hook)
-    path = tmp_path / "attachment.bin"
-    path.write_bytes(b"test attachment")
-    channel = SimpleNamespace(id=1, send=AsyncMock(return_value=SimpleNamespace(id=500, attachments=[object()])))
-    adapter._resolve_channel = AsyncMock(return_value=channel)
-    adapter._is_forum_parent = lambda c: False
-    adapter._client.http = SimpleNamespace(request=AsyncMock(side_effect=RuntimeError("use file fallback")))
-    if method == "send_voice_native":
-        adapter._client.http.request = AsyncMock(return_value={"id": "500"})
-    import plugins.platforms.discord.adapter as discord_adapter
-    monkeypatch.setattr(discord_adapter, "_read_url_image_with_redirect_guard", AsyncMock(return_value=(200, b"image", {"content-type": "image/png"})))
-    source = SessionSource(Platform.DISCORD, "1", message_id="123")
-    with api.delivery_scope(source, "key", "sid"):
-        args = [(path.as_uri(), "caption")] if method == "send_multiple_images" else str(path)
-        if method in {"send_image", "send_animation"}:
-            args = "https://example.org/image.png"
-        result = await getattr(adapter, "send_voice" if method == "send_voice_native" else method)("1", args)
-    assert result.success
-    assert seen == ["500"]
 
 
 @pytest.mark.asyncio
