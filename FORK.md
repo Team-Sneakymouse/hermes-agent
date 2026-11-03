@@ -26,7 +26,7 @@ Discord API; it lives outside `tests/gateway/` because that conftest mocks the S
 `website/docs/developer-guide/gateway-conversation-plugins.md`.
 
 `git diff --stat "$(git describe --tags --abbrev=0 --match 'v*' --exclude '*+*')" -- . ':!custom_plugins' ':!plugins/pocketbase'`
-(the fork against the release it last synced; needs upstream's tags) must show only the above.
+(the fork against the release it last synced; needs that tag fetched) must show only the above.
 Anything else that appears is an accidental fork drift; fix it.
 
 ## Weekly upstream sync
@@ -42,8 +42,8 @@ that `main` commit instead and say so in the PR; the next release sync merges cl
 Merge, never rebase: rebasing rewrites our merged PRs and throws away earlier resolutions.
 
 ```sh
-git fetch upstream origin --tags
 TAG=$(gh -R NousResearch/hermes-agent release view --json tagName -q .tagName)   # latest stable release
+git fetch origin && git fetch --no-tags upstream tag "$TAG"
 git switch -c chore/sync-upstream-$TAG origin/main
 git merge-tree --write-tree --name-only HEAD "$TAG" | grep CONFLICT   # preview
 P='conversation_plugins|conversation_lane|gateway_message_admission|gateway_session_route|gateway_delivery_receipt|prepare_conversation_route|preceding_message_ids|report_delivery|delivery_turn|bind_delivery_session|conversation_reset_boundary|plugin_profile_scope|delivery_receipt_trace'
