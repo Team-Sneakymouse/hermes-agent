@@ -11,6 +11,7 @@ adding a new integration.
 | Our plugins | `custom_plugins/*`, `plugins/pocketbase/` | Never (new paths) | n/a |
 | Conversation hook seam | `gateway/conversation_plugins.py` (contract), `plugins/platforms/discord/adapter_receipts.py` (Discord receipts) + call sites below | Yes — the only real conflict surface | Upstream ships equivalent admission / routing / delivery-receipt hooks |
 | Discord clarify fix | `plugins/platforms/discord/adapter.py` (PR #5) | Occasionally | Upstream fixes lossless clarify options |
+| Update restart hand-back fix | `hermes_cli/gateway.py::_prepare_profile_gateway_update_restart` (PR #13) | Occasionally | Upstream takes the same fix |
 | Fork CI | `.github/workflows/fork-ci.yml` | Never (new path) | n/a |
 
 Hook call sites in upstream files (the conflict checklist):

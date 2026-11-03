@@ -122,6 +122,42 @@ def test_update_follows_wrapper_upgrade_of_stale_plist_argv(monkeypatch):
     )
 
 
+# A PM-managed venv shim re-execs the gateway as ``python -I -c "...runpy..."``, so the supervisor's
+# ``--external-supervisor`` survives only inside the ``-c`` source, never as an argv element.
+_RUNPY_SHIM_ARGV = [
+    "/home/u/.hermes/tools/python-3.14/bin/python3", "-I", "-c",
+    "import sys, runpy; sys.argv = ['/home/u/.hermes/hermes-agent/hermes_cli/main.py', 'gateway', 'run',"
+    " '--external-supervisor']; runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)",
+]
+
+
+def test_update_hands_back_a_gateway_that_declares_its_external_supervisor(monkeypatch):
+    """The gateway's own ``identify`` answer decides, not the argv shape a launcher shim left behind."""
+    from gateway import control_socket
+
+    monkeypatch.setattr(gateway, "_capture_gateway_argv", lambda _pid: list(_RUNPY_SHIM_ARGV))
+    monkeypatch.setattr(control_socket, "identify_gateway",
+                        lambda _home: {"pid": 1234, "supervisor": "external", "launch_supervisor": "external"})
+    for name in ("launch_detached_profile_gateway_restart", "launch_detached_gateway_restart_by_cmdline"):
+        monkeypatch.setattr(gateway, name, lambda *_args: pytest.fail("detached watcher must not be launched"))
+
+    assert gateway._prepare_profile_gateway_update_restart("default", 1234) == "external-supervisor"
+
+
+def test_update_relaunches_a_shim_launched_gateway_that_declares_no_supervisor(monkeypatch):
+    from gateway import control_socket
+
+    monkeypatch.setattr(gateway, "_capture_gateway_argv", lambda _pid: list(_RUNPY_SHIM_ARGV[:3]) + ["pass"])
+    monkeypatch.setattr(control_socket, "identify_gateway",
+                        lambda _home: {"pid": 1234, "supervisor": "none", "launch_supervisor": "manual"})
+    launched = []
+    monkeypatch.setattr(gateway, "launch_detached_profile_gateway_restart",
+                        lambda profile, pid: launched.append((profile, pid)) or True)
+
+    assert gateway._prepare_profile_gateway_update_restart("default", 1234) == "detached"
+    assert launched == [("default", 1234)]
+
+
 def test_update_still_uses_detached_watcher_without_supervisor_flag(monkeypatch):
     monkeypatch.setattr(
         gateway,

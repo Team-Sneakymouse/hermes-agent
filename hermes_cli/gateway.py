@@ -960,20 +960,20 @@ def _capture_gateway_argv(pid: int) -> list[str] | None:
 
 
 def _prepare_profile_gateway_update_restart(profile: str, pid: int) -> str | None:
-    """Choose who relaunches a profile gateway after ``hermes update``: ``--external-supervisor`` gateways
-    exit back to their manager (a detached watcher would race its replacement); otherwise arm the
-    profile-derived detached watcher, falling back to replaying the captured command line.
+    """Choose who relaunches a profile gateway after ``hermes update``: a gateway that declares an external
+    supervisor exits back to it; otherwise arm the profile-derived detached watcher, else replay its argv.
 
-    When the profile-derived relaunch cannot be armed -- typically because ``_gateway_run_args_for_profile``
-    cannot rebuild a run argv for this profile -- fall back to replaying the process's own captured command
-    line, which is what ``launch_detached_gateway_restart_by_cmdline`` exists for and what the Windows
-    post-update path already does for its unmapped gateways. Without this the caller has no way to relaunch
-    the process and (before #88654) silently left it running pre-update modules against post-update code on
-    disk. ``argv`` is already captured above, so the fallback costs nothing extra.
+    The gateway's own declaration decides, as for ``hermes gateway restart``: a PM venv shim re-execs as
+    ``python -I -c "...runpy..."``, so the argv marker alone misses it and the watcher's relaunch then fights
+    the supervisor's respawn forever. Replaying the captured argv (as the Windows path does for unmapped
+    gateways) covers profiles ``_gateway_run_args_for_profile`` cannot rebuild; before #88654 those silently
+    kept running pre-update modules against post-update code on disk.
     """
-    argv = _capture_gateway_argv(pid)
-    if argv and "--external-supervisor" in argv:
+    from hermes_cli.gateway_supervised_restart import gateway_declares_external_supervisor
+    from hermes_cli.profiles import get_profile_dir
+    if gateway_declares_external_supervisor(pid, get_profile_dir(profile)):
         return "external-supervisor"
+    argv = _capture_gateway_argv(pid)
     if launch_detached_profile_gateway_restart(profile, pid):
         return "detached"
     if argv and launch_detached_gateway_restart_by_cmdline(pid, list(argv)):
