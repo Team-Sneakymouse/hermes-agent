@@ -59,13 +59,32 @@ jobs:
           done
           exit $status
 
+      # The diff-judging checks (health, blob-size) default to the merge-base with origin/main,
+      # which on a push to main is HEAD itself: an empty diff. Pushes diff against the pushed-over
+      # tip (HEAD~1 for a new branch or a force-push that dropped it), like upstream's lint.yml.
+      - name: Pick diff base
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            if [ -n "${BEFORE//0/}" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              base=$BEFORE
+            else
+              base=$(git rev-parse HEAD~1)
+            fi
+          else
+            base=$(git merge-base origin/main HEAD)
+          fi
+          echo "Diff base: $base"
+          echo "DIFF_BASE=$base" >> "$GITHUB_ENV"
+
       # scripts/check caps each check at 900s, which the code-health ratchet can exceed on a
       # sync PR (it judges every upstream file the sync brings in). So: every other check through
       # scripts/check, the ratchet directly. Names come from scripts/check so new guards are kept.
       - name: Lint guards (scripts/check minus health)
         run: |
           checks=$(.venv/bin/python -c "import runpy; g = runpy.run_path('scripts/check', run_name='fork_ci'); print(','.join(n for n in g['_CHECKS'] if n != 'health'))")
-          .venv/bin/python scripts/check --only "$checks"
+          .venv/bin/python scripts/check --only "$checks" --base "$DIFF_BASE"
 
       - name: Code-health ratchet
-        run: .venv/bin/python -m scripts.code_health
+        run: .venv/bin/python -m scripts.code_health --base "$DIFF_BASE"
