@@ -1,0 +1,71 @@
+# Team-Sneakymouse fork CI: the FORK.md verification, on a GitHub-hosted runner.
+#
+# Upstream's workflows need Blacksmith runners the fork cannot use, so they are disabled in this
+# repo's Actions settings (FORK.md § Fork CI). Upstream already tests its own code; this job only
+# answers "did upstream break our delta?". This file is fork-owned: upstream never touches it.
+name: Fork CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - name: Isolate HERMES_HOME
+        run: echo "HERMES_HOME=$RUNNER_TEMP/hermes-home" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
+        with:
+          fetch-depth: 0 # the health ratchet diffs against the merge-base with origin/main
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Build .venv
+        run: python -m pm.build_env --source . --out .venv --group dev --group test --extra discord
+
+      - name: Fork contract tests
+        env:
+          HERMES_PYTHON: .venv/bin/python
+        run: |
+          scripts/run_tests.sh \
+            tests/gateway/test_plugin_conversation_contract.py tests/gateway/test_discord_conversation_plugin.py \
+            tests/gateway/test_discord_clarify_lossless.py tests/gateway/test_discord_clarify_buttons.py \
+            tests/plugins/platforms/test_discord_delivery_receipts.py \
+            tests/plugins/test_pocketbase.py tests/plugins/test_pocketbase_api_scope.py
+
+      - name: Custom plugin unittests
+        run: |
+          status=0
+          for d in custom_plugins/*/; do
+            ls "$d"test_*.py >/dev/null 2>&1 || { echo "$d: no tests"; continue; }
+            .venv/bin/python -m unittest discover -s "$d" -p 'test_*.py' || status=1
+          done
+          exit $status
+
+      # scripts/check caps each check at 900s, which the code-health ratchet can exceed on a
+      # sync PR (it judges every upstream file the sync brings in). So: every other check through
+      # scripts/check, the ratchet directly. Names come from scripts/check so new guards are kept.
+      - name: Lint guards (scripts/check minus health)
+        run: |
+          checks=$(.venv/bin/python -c "import runpy; g = runpy.run_path('scripts/check', run_name='fork_ci'); print(','.join(n for n in g['_CHECKS'] if n != 'health'))")
+          .venv/bin/python scripts/check --only "$checks"
+
+      - name: Code-health ratchet
+        run: .venv/bin/python -m scripts.code_health
