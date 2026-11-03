@@ -11,6 +11,7 @@ adding a new integration.
 | Our plugins | `custom_plugins/*`, `plugins/pocketbase/` | Never (new paths) | n/a |
 | Conversation hook seam | `gateway/conversation_plugins.py` (contract), `plugins/platforms/discord/adapter_receipts.py` (Discord receipts) + call sites below | Yes — the only real conflict surface | Upstream ships equivalent admission / routing / delivery-receipt hooks |
 | Discord clarify fix | `plugins/platforms/discord/adapter.py` (PR #5) | Occasionally | Upstream fixes lossless clarify options |
+| Fork CI | `.github/workflows/fork-ci.yml` | Never (new path) | n/a |
 
 Hook call sites in upstream files (the conflict checklist):
 `gateway/platforms/base.py`, `gateway/run_turn_prepare.py`, `gateway/session.py`,
@@ -43,6 +44,15 @@ git grep -c -E "$P" -- gateway hermes_cli plugins/platforms | sort > "$INV/after
 diff "$INV/before.txt" "$INV/after.txt"   # every difference must be explained
 ```
 
+After the merge, disable any workflow upstream added (§ Fork CI):
+
+```sh
+gh -R Team-Sneakymouse/hermes-agent workflow list --all --json path,state \
+  --jq '.[] | select(.state == "active") | .path | split("/") | last' |
+  grep -vxE 'fork-ci\.yml|osv-scanner\.yml' |
+  xargs -r -n1 gh -R Team-Sneakymouse/hermes-agent workflow disable
+```
+
 Verify, then open a PR into `origin/main` (title `chore(sync): merge NousResearch main at <sha>`):
 
 ```sh
@@ -65,6 +75,17 @@ fence" section and grep the merged tree for the upstream behaviour it names.
 Build `.venv` once with `python -m pm.build_env --source . --out .venv --group dev --group test --extra discord`
 (Python 3.14; rebuild when `uv.lock` changes). Merge the sync PR with a merge commit, not a squash.
 Don't let syncs lapse: three weeks of drift was ~9.7k commits and 5 conflicts.
+
+### Fork CI
+
+Upstream's workflows run on Blacksmith runners the fork can't use: their jobs queue for a day and
+are cancelled. Rather than edit ~50 upstream files every sync, they are disabled in the repo's
+Actions settings (the command above; settings aren't files, so they never conflict), except
+`osv-scanner.yml`, which runs on GitHub's runners. `fork-ci.yml` runs the verification above on
+every PR into `main` and every push to `main`, on a GitHub-hosted runner. It skips upstream's
+own test suite on purpose: upstream already ran it, and our delta is what the contract tests
+cover. The code-health ratchet runs outside `scripts/check` there, because its 900s per-check cap
+is too short for a sync PR on a small runner.
 
 ### Conflict rules (learned the hard way)
 
