@@ -1,8 +1,8 @@
 # Team-Sneakymouse fork
 
 `origin` = `Team-Sneakymouse/hermes-agent`, `upstream` = `NousResearch/hermes-agent`. We track
-upstream `main` and carry the smallest possible delta on top. Read this before a sync or before
-adding a new integration.
+upstream's latest stable release and carry the smallest possible delta on top. Read this before a
+sync, a deploy, or adding a new integration.
 
 ## What the fork carries
 
@@ -25,21 +25,31 @@ Contract tests: `tests/gateway/test_plugin_conversation_contract.py`,
 Discord API; it lives outside `tests/gateway/` because that conftest mocks the SDK). Docs:
 `website/docs/developer-guide/gateway-conversation-plugins.md`.
 
-`git diff --stat upstream/main -- . ':!custom_plugins' ':!plugins/pocketbase'` must show only the
-above. Anything else that appears is an accidental fork drift; fix it.
+`git diff --stat "$(git describe --tags --abbrev=0 --match 'v*' --exclude '*+*')" -- . ':!custom_plugins' ':!plugins/pocketbase'`
+(the fork against the release it last synced; needs upstream's tags) must show only the above.
+Anything else that appears is an accidental fork drift; fix it.
 
 ## Weekly upstream sync
+
+Sync to upstream's latest published release (`vX.Y.Z`), not `main`'s tip. Release tags are commits
+on upstream `main` (no release branches), so a tag sync is an ordinary merge, but a release has
+passed upstream's stable gate (install E2E, Docker, Nix, live Windows, packaged-transition and
+acceptance lanes) that a random `main` commit hasn't; release candidates that fail it are tagged
+`abandoned-rc.*`. Releases land every few days, so the lag is small. Never sync to an `rc.*`,
+`abandoned-rc.*` or `+canary` tag. If we need a fix that is on `main` but not yet released, sync to
+that `main` commit instead and say so in the PR; the next release sync merges cleanly over it.
 
 Merge, never rebase: rebasing rewrites our merged PRs and throws away earlier resolutions.
 
 ```sh
-git fetch upstream origin
-git switch -c chore/sync-upstream-$(date +%F) origin/main
-git merge-tree --write-tree --name-only HEAD upstream/main | grep CONFLICT   # preview
+git fetch upstream origin --tags
+TAG=$(gh -R NousResearch/hermes-agent release view --json tagName -q .tagName)   # latest stable release
+git switch -c chore/sync-upstream-$TAG origin/main
+git merge-tree --write-tree --name-only HEAD "$TAG" | grep CONFLICT   # preview
 P='conversation_plugins|conversation_lane|gateway_message_admission|gateway_session_route|gateway_delivery_receipt|prepare_conversation_route|preceding_message_ids|report_delivery|delivery_turn|bind_delivery_session|conversation_reset_boundary|plugin_profile_scope|delivery_receipt_trace'
 INV="$(mktemp -d)"
 git grep -c -E "$P" -- gateway hermes_cli plugins/platforms | sort > "$INV/before.txt"
-git merge --no-ff upstream/main
+git merge --no-ff "$TAG" -m "chore(sync): merge NousResearch $TAG"
 # resolve (rules below), then:
 git grep -c -E "$P" -- gateway hermes_cli plugins/platforms | sort > "$INV/after.txt"
 diff "$INV/before.txt" "$INV/after.txt"   # every difference must be explained
@@ -54,7 +64,8 @@ gh -R Team-Sneakymouse/hermes-agent workflow list --all --limit 500 --json path,
   xargs -r -n1 gh -R Team-Sneakymouse/hermes-agent workflow disable
 ```
 
-Verify, then open a PR into `origin/main` (title `chore(sync): merge NousResearch main at <sha>`):
+Verify, then open a PR into `origin/main` (title `chore(sync): merge NousResearch <tag> (<sha>)`).
+Fork CI runs all of this on the PR; locally:
 
 ```sh
 HERMES_PYTHON=.venv/bin/python scripts/run_tests.sh \
@@ -63,19 +74,25 @@ HERMES_PYTHON=.venv/bin/python scripts/run_tests.sh \
   tests/plugins/platforms/test_discord_delivery_receipts.py \
   tests/plugins/test_pocketbase.py tests/plugins/test_pocketbase_api_scope.py
 for d in custom_plugins/*/; do .venv/bin/python -m unittest discover -s "$d" -p 'test_*.py'; done
-python scripts/check
+python scripts/check            # every guard + the health ratchet
+python -m scripts.code_health    # only if health hit scripts/check's 900s per-check cap
 ```
 
-(Windows: `.venv/Scripts/python.exe`; run `scripts/check` with `PYTHONUTF8=1`.) Expect `health`
-ratchet findings in upstream files: the baseline is our pre-sync `main`, so only findings in the
-fork-delta files above are ours. Windows hosts also fail a few path/file-lock tests that pass on
+(Windows: `.venv/Scripts/python.exe`, with `PYTHONUTF8=1`.) A sync makes the health ratchet judge
+every upstream file it brings in, which can outlast `scripts/check`'s 900s per-check cap on a slow
+host; run it directly as above. Only findings in the fork-delta files above are ours. GitHub can
+take ~20 minutes to attach a push to a large sync PR; if Fork CI hasn't started, run it from the
+Actions tab (`gh workflow run fork-ci.yml --ref <branch>`). Windows hosts also fail a few path/file-lock tests that pass on
 Linux (`file:///C:/...` media paths, todo-assessment `test_gateway_handoff`); compare against
 `main` in a scratch worktree before blaming the sync. Then read each `custom_plugins/*/README.md` "compatibility
 fence" section and grep the merged tree for the upstream behaviour it names.
 
 Build `.venv` once with `python -m pm.build_env --source . --out .venv --group dev --group test --extra discord`
-(Python 3.14; rebuild when `uv.lock` changes). Merge the sync PR with a merge commit, not a squash.
-Don't let syncs lapse: three weeks of drift was ~9.7k commits and 5 conflicts.
+(Python 3.14; rebuild when `uv.lock` changes). Never run the update or gateway test files on the
+bot host: they scan the machine's real processes, and the live gateway is one of them. Merge the
+sync PR with a merge commit, not a squash, then deploy it (§ Deploy): merging alone changes nothing
+on the bot. Don't let syncs lapse: three weeks of drift was ~9.7k commits and 5 conflicts, and
+production once sat two merged syncs behind.
 
 ### Fork CI
 
@@ -112,6 +129,62 @@ is too short for a sync PR on a small runner.
   (`hermes plugins disable <name>`) and mark its README, rather than holding the sync back.
   `discord-todo-assessment` has been disabled this way since the 2026-10-25 sync.
 - Keep upstream's style changes (`Set[str]` → `set[str]`, string annotations dropped) in our lines.
+
+## Deploy
+
+Judge every upstream change against the host as it is, not as it might be:
+
+- `ssh mothermouse@10.0.0.103`, checkout `~/.hermes/hermes-agent` on fork `main`, one `default`
+  profile (no `profiles/`, so no multiplex), Discord allowlist in `.env` (`DISCORD_ALLOWED_USERS`,
+  `DISCORD_ALLOWED_ROLES`), no `discord.allow_from` in `config.yaml`.
+- The gateway belongs to root's `/usr/local/sbin/hermes-gateway-supervisor`, which runs
+  `gateway run --external-supervisor` in a loop and restarts at once on exit 75.
+- Enabled plugins include catalog plugins the fork doesn't track (`hermes-dreaming`,
+  `homeassistant`, `infisical`); no fork test covers them. `discord-todo-assessment` is disabled.
+- `updates.pre_update_backup` is off, and the shell-command approvals are decided by an auxiliary
+  model, not a Discord button.
+
+**Before merging the sync PR,** load the host's plugins against the merged tree in a scratch home
+that holds only `config.yaml` and `plugins/` (no `.env`, no databases), from a scratch checkout of
+the sync branch on the host:
+
+```sh
+S=$(mktemp -d -p ~/projects); mkdir "$S/home"; cp ~/.hermes/config.yaml "$S/home/"; cp -a ~/.hermes/plugins "$S/home/"
+HERMES_HOME="$S/home" "$(ls -d ~/.hermes/tools/python-3.14*/bin/python3 | tail -1)" -m pm.build_env --source . --out "$S/venv" --group dev --extra discord
+HERMES_HOME="$S/home" "$S/venv/bin/python" -c 'from hermes_cli.plugins import get_plugin_manager as g
+m = g(); m.discover_and_load()
+for n, p in sorted(m._plugins.items()): print(n, p.error or "ok")' | grep -v "not enabled"
+rm -rf "$S"
+```
+
+Every enabled plugin must print `ok`.
+
+**Deploy** (interrupts the bot for a minute or two; it drains running turns first, up to ~30 min):
+
+```sh
+grep -E 'inbound message|response ready' ~/.hermes/logs/gateway.log | tail -2   # idle?
+git -C ~/.hermes/hermes-agent fetch origin main   # hermes update gives its fetch only 300s
+hermes update --backup --yes                       # --backup: the host's automatic one is off
+```
+
+**Verify:**
+
+- the update ends with `✓ default (pid <PID>) @ <merged sha> — up to date`;
+- `ps -o ppid= -p <PID>` is the supervisor (`pgrep -f hermes-gateway-supervisor`), and
+  `~/.hermes/logs/gateway-sysv.log` shows one `starting Hermes gateway` for the update, not a stream.
+  A parent of `1` means `hermes update` relaunched the gateway itself (the bug PR #13 fixed): when
+  the bot is idle, `kill -TERM <PID>` and the supervisor starts its own within seconds;
+- `gateway.log` shows `✓ discord connected` and no `ERROR` since the restart.
+
+Then smoke-test in Discord and read `gateway.log` for each: a clarify button and an approval button,
+both in a guild channel and in a thread (use a PocketBase change for the approval; shell commands
+are auto-decided); `/new` then `/resume` in a thread; optionally, a non-allowlisted user's mention
+stays unanswered.
+
+**Rollback** (not rehearsed yet): reset the checkout to the update receipt's `pre_update.sha`
+(`~/.hermes/logs/update_receipts/update_*.json`), check the dependencies with `hermes pm doctor`,
+restore data with `hermes import <the --backup zip>`, then `kill -TERM` the gateway so the
+supervisor restarts it on the old code.
 
 ## Writing a new integration
 
