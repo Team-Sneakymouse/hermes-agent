@@ -47,7 +47,7 @@ diff "$INV/before.txt" "$INV/after.txt"   # every difference must be explained
 After the merge, disable any workflow upstream added (§ Fork CI):
 
 ```sh
-gh -R Team-Sneakymouse/hermes-agent workflow list --all --json path,state \
+gh -R Team-Sneakymouse/hermes-agent workflow list --all --limit 500 --json path,state \
   --jq '.[] | select(.state == "active") | .path | split("/") | last' |
   grep -vxE 'fork-ci\.yml|osv-scanner\.yml' |
   xargs -r -n1 gh -R Team-Sneakymouse/hermes-agent workflow disable
