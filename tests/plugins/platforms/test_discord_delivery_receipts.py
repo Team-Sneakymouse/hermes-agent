@@ -101,7 +101,7 @@ async def test_stream_edits_and_partial_overflow_continuations_report_ids(adapte
 @pytest.mark.asyncio
 @pytest.mark.parametrize("method", ["send_document", "send_video", "send_image_file", "send_multiple_images",
                                     "send_voice", "send_voice_native", "send_image", "send_animation"])
-async def test_native_media_replies_also_emit_receipts(adapter, monkeypatch, receipts, tmp_path, method):
+async def test_native_media_replies_also_emit_receipts(adapter, monkeypatch, receipts, tmp_path, method, public_dns):
     import plugins.platforms.discord.adapter as discord_adapter
     path = tmp_path / "attachment.bin"
     path.write_bytes(b"test attachment")

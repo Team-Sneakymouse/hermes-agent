@@ -29,6 +29,16 @@ State: `$HERMES_HOME/plugin-data/discord-conversations/associations.sqlite3`. Se
 
 Rollback: operator disables `discord-conversations`, restores the reviewed previous source/config and consistent backed-up state, and uses their usual CLI restart workflow. Do not mix a restored association index with unrelated newer session state.
 
+## Compatibility fence
+
+The admission hook sees original transport content before native Discord normalization;
+route selection must precede session resolution, and confirmed REST receipts must retain
+the originating turn/session identity across streaming, edits, and reset boundaries.
+These hooks require in-process plugin execution and do not replace upstream authorization
+or bot-loop safeguards. A literal bot mention is necessary, not sufficient: v0.23.0's
+bot-chain duplicate/hop/reply guards may reject the turn and are shared by conversation
+lanes in the same transport channel. Do not bypass those safeguards to force a reply.
+
 ## Tests
 
 PM-managed test environment with Discord extra:
