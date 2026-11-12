@@ -48,7 +48,8 @@ jobs:
             tests/gateway/test_plugin_conversation_contract.py tests/gateway/test_discord_conversation_plugin.py \
             tests/gateway/test_discord_clarify_lossless.py tests/gateway/test_discord_clarify_buttons.py \
             tests/plugins/platforms/test_discord_delivery_receipts.py \
-            tests/plugins/test_pocketbase.py tests/plugins/test_pocketbase_api_scope.py
+            tests/plugins/test_pocketbase.py tests/plugins/test_pocketbase_api_scope.py \
+            tests/hermes_cli/test_gateway_external_supervisor.py tests/hermes_cli/test_dashboard_external_supervisor.py
 
       - name: Custom plugin unittests
         run: |
