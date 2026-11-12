@@ -12,6 +12,7 @@ sync, a deploy, or adding a new integration.
 | Conversation hook seam | `gateway/conversation_plugins.py` (contract), `plugins/platforms/discord/adapter_receipts.py` (Discord receipts) + call sites below | Yes — the only real conflict surface | Upstream ships equivalent admission / routing / delivery-receipt hooks |
 | Discord clarify fix | `plugins/platforms/discord/adapter.py` (PR #5) | Occasionally | Upstream fixes lossless clarify options |
 | Update restart hand-back fix | `hermes_cli/gateway.py::_prepare_profile_gateway_update_restart` (PR #13) | Occasionally | Upstream takes the same fix |
+| Dashboard `--external-supervisor` | `hermes_cli/dashboard_procs.py::_restart_killed_backends`, `subcommands/dashboard.py`, `main_dashboard.py::_route_named_profile_dashboard` (PR #16) | Occasionally | Upstream ships an external-supervisor declaration for `dashboard`/`serve` |
 | Fork CI | `.github/workflows/fork-ci.yml` | Never (new path) | n/a |
 
 Hook call sites in upstream files (the conflict checklist):
@@ -72,7 +73,8 @@ HERMES_PYTHON=.venv/bin/python scripts/run_tests.sh \
   tests/gateway/test_plugin_conversation_contract.py tests/gateway/test_discord_conversation_plugin.py \
   tests/gateway/test_discord_clarify_lossless.py tests/gateway/test_discord_clarify_buttons.py \
   tests/plugins/platforms/test_discord_delivery_receipts.py \
-  tests/plugins/test_pocketbase.py tests/plugins/test_pocketbase_api_scope.py
+  tests/plugins/test_pocketbase.py tests/plugins/test_pocketbase_api_scope.py \
+  tests/hermes_cli/test_gateway_external_supervisor.py tests/hermes_cli/test_dashboard_external_supervisor.py
 for d in custom_plugins/*/; do .venv/bin/python -m unittest discover -s "$d" -p 'test_*.py'; done
 python scripts/check            # every guard + the health ratchet
 python -m scripts.code_health    # only if health hit scripts/check's 900s per-check cap
@@ -138,7 +140,10 @@ Judge every upstream change against the host as it is, not as it might be:
   profile (no `profiles/`, so no multiplex), Discord allowlist in `.env` (`DISCORD_ALLOWED_USERS`,
   `DISCORD_ALLOWED_ROLES`), no `discord.allow_from` in `config.yaml`.
 - The gateway belongs to root's `/usr/local/sbin/hermes-gateway-supervisor`, which runs
-  `gateway run --external-supervisor` in a loop and restarts at once on exit 75.
+  `gateway run --external-supervisor` in a loop and restarts at once on exit 75. The dashboard
+  (port 9119) belongs to root's `/usr/local/sbin/hermes-dashboard-supervisor`, which must run
+  `dashboard --external-supervisor ...`; without the flag `hermes update` respawns it detached
+  and the supervisor loops on exit 75 ("port in use").
 - Enabled plugins include catalog plugins the fork doesn't track (`hermes-dreaming`,
   `homeassistant`, `infisical`); no fork test covers them. `discord-todo-assessment` is disabled.
 - `updates.pre_update_backup` is off, and the shell-command approvals are decided by an auxiliary
@@ -174,7 +179,10 @@ hermes update --backup --yes                       # --backup: the host's automa
   `~/.hermes/logs/gateway-sysv.log` shows one `starting Hermes gateway` for the update, not a stream.
   A parent of `1` means `hermes update` relaunched the gateway itself (the bug PR #13 fixed): when
   the bot is idle, `kill -TERM <PID>` and the supervisor starts its own within seconds;
-- `gateway.log` shows `✓ discord connected` and no `ERROR` since the restart.
+- `gateway.log` shows `✓ discord connected` and no `ERROR` since the restart;
+- the update prints `PID <PID> handed back to its external supervisor` for the dashboard, and the
+  process on port 9119 (`ss -ltnp | grep 9119`) has `hermes-dashboard-supervisor` as its parent.
+  A parent of `1` means the supervisor lacks `--external-supervisor`: `kill -TERM` that PID.
 
 Then smoke-test in Discord and read `gateway.log` for each: a clarify button and an approval button,
 both in a guild channel and in a thread (use a PocketBase change for the approval; shell commands
