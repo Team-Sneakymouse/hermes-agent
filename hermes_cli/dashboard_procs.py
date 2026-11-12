@@ -12,6 +12,10 @@ from pathlib import Path
 
 from hermes_cli._startup_fast import is_desktop_ssh_backend_argv
 
+# Declared on the command line by a backend whose launcher restarts it when it exits; the update
+# stops it and leaves the relaunch to that launcher (``hermes dashboard|serve --external-supervisor``).
+EXTERNAL_SUPERVISOR_FLAG = "--external-supervisor"
+
 _PS_RUN_KWARGS = dict(capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
@@ -760,6 +764,10 @@ def _restart_killed_backends(
                 failed_restarts.append(
                     (target, f"launchd is not supervising a fresh process; run: {sudo}launchctl kickstart -k {target}"))
                 unrecovered.append(pid)
+        elif EXTERNAL_SUPERVISOR_FLAG in pid_cmdline.get(pid, ()):
+            # Its own supervisor (a SysV/s6/runit loop, a container restart policy) relaunches it on
+            # the new code; an argv respawn would hold the port and fail every supervised restart.
+            print(f"    ✓ PID {pid} handed back to its external supervisor")
         elif pid in pid_cmdline:
             respawn_candidates.append((pid, pid_cmdline[pid], pid_home.get(pid)))
         else:

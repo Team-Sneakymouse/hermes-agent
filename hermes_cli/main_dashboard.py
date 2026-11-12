@@ -1006,7 +1006,9 @@ def _route_named_profile_dashboard(
         (_token_file, ["--ssh-session-token-file", _token_file]),
         (args.no_open, ["--no-open"]),
         (getattr(args, "insecure", False), ["--insecure"]),
-        (getattr(args, "skip_build", False), ["--skip-build"])):
+        (getattr(args, "skip_build", False), ["--skip-build"]),
+        # The POSIX re-exec keeps the PID, so the launcher that supervises it still does.
+        (getattr(args, "external_supervisor", False), ["--external-supervisor"])):
         if enabled:
             reexec_argv.extend(extra)
     from tools.environments.local import build_subprocess_env

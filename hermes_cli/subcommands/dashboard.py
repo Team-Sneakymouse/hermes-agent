@@ -34,6 +34,11 @@ def _add_server_runtime_args(parser) -> None:
             "to that profile instead of routing to the machine-level server. "
             "Default behavior is unified: profile launches attach to (or start) "
             "ONE machine-level server and preselect the profile.")
+    parser.add_argument(
+        "--external-supervisor", dest="external_supervisor", action="store_true",
+        help="Declare that a supervisor outside Hermes (SysV script, s6, runit, a container "
+            "restart policy) relaunches this server when it exits. `hermes update` then stops "
+            "it and leaves the relaunch to that supervisor instead of respawning it detached.")
     # Internal: set by the unified-launch re-exec to preselect the launching profile.
     parser.add_argument("--open-profile", dest="open_profile", default="", help=argparse.SUPPRESS)
     # Lifecycle flags win over the start-a-server flags (they exit first). No service
