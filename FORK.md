@@ -196,7 +196,9 @@ supervisor restarts it on the old code.
 
 ## Writing a new integration
 
-Climb the footprint ladder in the root `AGENTS.md`, and stop at the first rung that works:
+The root `AGENTS.md` footprint ladder is upstream's and starts by extending existing code. In the fork,
+where every line added to an upstream file is a future sync conflict, use this ladder instead and stop
+at the first rung that works:
 
 1. **Plugin on existing surface:** a directory in `custom_plugins/<name>/` (`plugin.yaml`,
    `__init__.py`, `README.md`, tests next to it) using existing hooks / `ctx` methods. Zero
@@ -210,8 +212,9 @@ Climb the footprint ladder in the root `AGENTS.md`, and stop at the first rung t
    - contract types and dispatch go in our own module (`gateway/conversation_plugins.py` or a new
      `gateway/<topic>_plugins.py`), never inline in upstream files;
    - each upstream file gets a 1–3 line, late-imported call into that module and nothing more;
-   - register the hook in `VALID_HOOKS`, `HOOK_TIMEOUT_FAIL_CLOSED_HOOKS` if it is a policy gate,
-     and `HOST_DEGRADED_HOOKS` if its payload can't cross the plugin host;
+   - register the hook in `VALID_HOOKS` (`hermes_cli/plugins.py`), in `_HOOK_TIMEOUT_FAIL_CLOSED_HOOKS`
+     (`hermes_cli/plugins_dispatch.py`) if it is a policy gate, and in `HOST_DEGRADED_HOOKS`
+     (`hermes_cli/plugin_isolation.py`) if its payload can't cross the plugin host;
    - add a contract test in `tests/gateway/` that drives the real code path, and add the new call
      sites to the checklist and the inventory regex above.
 3. **Upstream it if it's generic.** A seam with a working consumer (our plugin) meets upstream's

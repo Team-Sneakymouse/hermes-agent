@@ -41,15 +41,17 @@ def schema(name, actions, properties, description):
 
 COMMON = {
     "collection": {"type": "string", "description": "Exact collection name or ID; no system collections"},
-    "filter": {"type": "string", "description": "PocketBase filter expression"},
-    "page": {"type": "integer", "minimum": 1},
-    "per_page": {"type": "integer", "minimum": 1, "maximum": 500},
-    "sort": {"type": "string"},
+    "filter": {"type": "string", "description": "PocketBase filter expression (list; records preview_delete narrows a bulk selection)"},
+    "page": {"type": "integer", "minimum": 1, "description": "list only: 1-based page (default 1)"},
+    "per_page": {"type": "integer", "minimum": 1, "maximum": 500, "description": "list only: page size (default 100)"},
+    "sort": {"type": "string", "description": "list only: PocketBase sort expression, e.g. -created,name"},
     "data": {"type": "object", "description": "Record data or complete collection change set"},
     "snapshot_id": {"type": "string", "description": "Single-use preview ID; expires after five minutes"},
 }
 RECORDS_SCHEMA = schema("pocketbase_records", ["list", "get", "create", "update", "preview_delete", "delete"], {
-    **COMMON, "record_id": {"type": "string"}, "fields": {"type": "string"},
+    **COMMON,
+    "record_id": {"type": "string", "description": "Required for get and update; for preview_delete, selects one record"},
+    "fields": {"type": "string", "description": "list only: comma-separated fields to return (PocketBase field projection)"},
     "date_field": {"type": "string", "description": "Required for bulk deletion"},
     "cutoff": {"type": "string", "description": "ISO date-time with UTC offset; exclusive less-than cutoff"},
     "timezone": {"type": "string", "description": "IANA timezone matching the cutoff offset"},

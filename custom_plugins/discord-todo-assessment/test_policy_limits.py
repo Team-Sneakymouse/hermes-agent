@@ -137,7 +137,9 @@ class PolicyLimitsTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(m, 'RetrospectiveStore', return_value=s):
                 result = tools['discord_todo_retrospective_propose']['handler'](
                     dict(capability='a'*64,proposal=dict(rules=[],memory=[],summary='x'+' '*5000)))
-                self.assertEqual(json.loads(result), {'error':'invalid_draft'})
+                payload = json.loads(result)
+                self.assertEqual(payload['error'], 'invalid_draft')
+                self.assertIn('budget', payload['detail'])
             with closing(s.connect()) as db, db:
                 policy = s.active(db)
                 policy['rules'] = [dict(text='x'*3900,evidence_ids=['c']) for _ in range(5)]

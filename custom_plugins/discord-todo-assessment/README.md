@@ -33,22 +33,22 @@ The first open of an old database transactionally creates/backfills `draft_capab
 
 Complete canonical JSON for `{rules,memory}` must fit **16,384 UTF-8 bytes**, including JSON structure and evidence lists. Each array has at most 100 lessons; text and summary must be nonblank and each raw stored value fits 4,000 UTF-8 bytes (whitespace is counted, not silently stripped). Each evidence list has 1–100 unique IDs, each nonblank and at most 128 UTF-8 bytes; frozen correction IDs have the same bound. New/changed entries still require frozen evidence; unchanged entries may retain historical evidence. Strict canonical JSON rejects nonfinite numbers. Draft writes, prepare-approval, approval, and assessment validate the budget. Oversized legacy drafts cannot activate; oversized active state fails closed before model invocation. Nothing is truncated or deleted: operators must explicitly reconcile legacy state while preserving history.
 
-Assessment has a separate **49,152 UTF-8 byte combined ceiling** on actual instructions (including learned policy), canonical input, and canonical output schema. HTTP retains its 256 KiB transport ceiling, but that is not a model budget. Configure a model with **at least 65,536 context tokens**: this conservative byte-as-token admission budget reserves 6,000 output tokens and 10,384 tokens for host/schema framing. The budget leaves room for the complete learned-policy ceiling, a representative 37-label PocketBase catalog, and report evidence together; this combination has a regression test. The installed public PluginLlm API does not expose resolved model context size; this is an operator minimum, not automatic discovery or a guarantee for arbitrary non-byte-based tokenizers. Inputs that exceed the combined ceiling return 422 and must be reduced explicitly. Approval at the full learned-policy ceiling is tested followed by a small assessment; large report/todo inputs still share the remaining ceiling.
+Assessment has a separate **49,152 UTF-8 byte combined ceiling** on actual instructions (including learned policy), canonical input, and canonical output schema. HTTP retains its 256 KiB transport ceiling, but that is not a model budget. Configure a model with **at least 75,536 context tokens**: this conservative byte-as-token admission budget reserves 16,000 output tokens (thinking counts toward them on thinking models) and 10,384 tokens for host/schema framing. The budget leaves room for the complete learned-policy ceiling, a representative 37-label PocketBase catalog, and report evidence together; this combination has a regression test. The installed public PluginLlm API does not expose resolved model context size; this is an operator minimum, not automatic discovery or a guarantee for arbitrary non-byte-based tokenizers. Inputs that exceed the combined ceiling return 422 and must be reduced explicitly. Approval at the full learned-policy ceiling is tested followed by a small assessment; large report/todo inputs still share the remaining ceiling.
 
 ### Retrospective verification
 
 ```sh
-hermes --run-module unittest discover -s /home/mothermouse/projects/hermes-todo-retrospective/custom_plugins/discord-todo-assessment -p 'test_*.py' -v
+.venv/bin/python -m unittest discover -s custom_plugins/discord-todo-assessment -p 'test_*.py' -v
 ```
 
-Installed-runtime suite: 16 tests including all original 12, actual aiohttp HTTP, real SQLite reopen, approval/hash/owner/CAS/no-change regressions, approved memory in actual structured-call arguments, and real GatewayRunner canonical question → human follow-up → registered draft-handler persistence. Model generation and external Discord remain explicit recording fixtures; no live model, Discord post or repository investigation was executed. Full output: `/home/mothermouse/.hermes/cache/scratch/todo-retrospective-hermes-tests.log`.
+The suite covers actual aiohttp HTTP, real SQLite reopen, approval/hash/owner/CAS/no-change regressions, approved memory in actual structured-call arguments, and real GatewayRunner canonical question → human follow-up → registered draft-handler persistence. Model generation and external Discord remain explicit recording fixtures; no live model, Discord post or repository investigation was executed.
 
 
 A directory plugin using the installed Hermes plugin APIs. No core patches, runtime rebinding, provider credentials in Node, new paid credential, or Discord bot-message admission is required.
 
 ## Compatibility fence — important
 
-The installed checkout at `0ef671bbd4c` exposes origin injection for a new chat, and the real-host integration test below verifies that behavior. **The live official docs now describe a newer session-authority mode that refuses origin injection when no human message has yet been admitted in that chat.** It returns False with `has no human message admitted yet`. That newer restriction does not appear in this installed `gateway/run_plugin_injection.py`, and the installed local docs still describe new-session origin injection without it.
+This plugin was built and tested against `0ef671bbd4c`, which allowed origin injection into a new chat. Since the 2026-10-25 sync this tree carries upstream's session authority (commit `5018d437cc`): `gateway/run_plugin_injection.py` refuses origin injection in a chat where no human message has been admitted and returns `False` (log: `has no human message admitted yet`). The fresh-thread Start and retrospective-start flows depend on exactly that injection, which is why the plugin is disabled (see the top of this file).
 
 Therefore this artifact is tested against the installed runtime, **not a promise of fresh-thread bootstrap after an update to that newer authority implementation**. Preserve this integration test as an update admission check. If the authority refusal is present, the single-click/no-human-follow-up requirement needs a different supported ingress carrying actual platform provenance; a separate webhook reply is not equivalent, and fabricating provenance or patching private methods is not an acceptable workaround. This compatibility difference is a deployment blocker on such newer hosts, not a reason to change the live gateway here.
 
@@ -99,7 +99,7 @@ POST `/plugins/discord-todo/v1/assess`, same Authorization header:
 }
 ```
 
-Only these top-level keys are accepted. Identifiers must be nonempty strings; each array is bounded to 1000 records and the HTTP body to 256 KiB. The plugin uses `ctx.llm.acomplete_structured` with the host's configured provider/auth, a 90-second model timeout, 6000 output tokens, and no provider/model override. No AIAgent, tool loop, codebase access, URL retrieval, memory injection, or session creation occurs in assessment.
+Only these top-level keys are accepted. Identifiers must be nonempty strings; each array is bounded to 1000 records and the HTTP body to 256 KiB. The plugin uses `ctx.llm.acomplete_structured` with the host's configured provider/auth, a 90-second model timeout, 16000 output tokens, and no provider/model override. No AIAgent, tool loop, codebase access, URL retrieval, memory injection, or session creation occurs in assessment.
 
 HTTP 200:
 
@@ -145,15 +145,15 @@ Run the full verification command below against the **exact runtime intended for
 
 ## Verification
 
-From any directory:
+From the repository root (Windows: `.venv/Scripts/python.exe`, as in `FORK.md`):
 
 ```sh
-/home/mothermouse/.hermes/hermes-agent/.hermes/bin/hermes --run-module unittest discover -s /home/mothermouse/projects/hermes-discord-todo-bridge/custom_plugins/discord-todo-assessment -p 'test_*.py' -v
-/home/mothermouse/.hermes/hermes-agent/.hermes/bin/hermes plugins validate /home/mothermouse/projects/hermes-discord-todo-bridge/custom_plugins/discord-todo-assessment
-/home/mothermouse/.hermes/hermes-agent/.hermes/bin/hermes plugins doctor /home/mothermouse/projects/hermes-discord-todo-bridge/custom_plugins/discord-todo-assessment --ci
+.venv/bin/python -m unittest discover -s custom_plugins/discord-todo-assessment -p 'test_*.py' -v
+hermes plugins validate custom_plugins/discord-todo-assessment
+hermes plugins doctor custom_plugins/discord-todo-assessment --ci
 ```
 
-The complete suite passes **12 tests** on the installed runtime, including policy regressions that inspect instructions actually delivered to `ctx.llm`, returned guidance version `2` and purpose `discord-todo.assess.v2`. These policy tests were observed failing against v1 before the policy change. Tests exercise actual aiohttp loopback HTTP and injected provider fixtures. The host integration test uses the **installed** PluginContext, GatewayRunner, BasePlatformAdapter, authorization, durable sessions and transcript path, replacing only the model boundary and external Discord transport. It configures a real guild + forum-parent route to a served coding profile and proves that injection runs in that profile, empty initial history, opening prompt context, reply to the target thread, and a human follow-up reusing the same durable session ID with both turns read back from the real durable transcript. The model fixture returns `agent_persisted=False` so the gateway actually writes the user/assistant rows; omitting this flag can yield a misleading empty transcript. It does not pretend to test Discord's remote API or a live model.
+The suite includes policy regressions that inspect instructions actually delivered to `ctx.llm`, returned guidance version `2` and purpose `discord-todo.assess.v2`. These policy tests were observed failing against v1 before the policy change. Tests exercise actual aiohttp loopback HTTP and injected provider fixtures. The host integration test uses the **installed** PluginContext, GatewayRunner, BasePlatformAdapter, authorization, durable sessions and transcript path, replacing only the model boundary and external Discord transport. It configures a real guild + forum-parent route to a served coding profile and proves that injection runs in that profile, empty initial history, opening prompt context, reply to the target thread, and a human follow-up reusing the same durable session ID with both turns read back from the real durable transcript. The model fixture returns `agent_persisted=False` so the gateway actually writes the user/assistant rows; omitting this flag can yield a misleading empty transcript. It does not pretend to test Discord's remote API or a live model.
 
 The installed PM runtime does not include pytest, so this focused artifact uses stdlib unittest without modifying any active PM environment.
 
