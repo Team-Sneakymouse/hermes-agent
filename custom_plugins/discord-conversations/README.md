@@ -1,6 +1,6 @@
 # Discord conversations
 
-Opt-in custom policy, not bundled/automatically enabled. Requires the gateway APIs in this feature branch. No monkeypatches, adapter subclass overrides, or private adapter/session-store access.
+Opt-in custom policy, not bundled/automatically enabled. Requires the fork's conversation hook seam (`gateway/conversation_plugins.py`; see `FORK.md`). No monkeypatches, adapter subclass overrides, or private adapter/session-store access.
 
 - Guild humans and bots must type literal `<@BOT_ID>` or `<@!BOT_ID>` in the original message. Reply-ping metadata, forwarded snapshots, or other IDs alone do not trigger. DM text admission is unchanged.
 - Ordinary shared guild channels (`group_sessions_per_user: false`) query the entire configured preceding history window on each invocation. The newest associated invocation or delivered reply selects its durable lane; unrelated messages still consume window positions. An empty qualifying window creates a new lane, never overwriting another lane's accumulated transcript.
