@@ -786,7 +786,7 @@ Long choices are not shortened to fit button labels: read their complete text ab
 
 Choice prompts support up to **24 options plus Other**. The complete question, options, heading, and reply hint must fit Discord's **2000 UTF-16 unit** message limit (some emoji count as two units). If either limit is exceeded, the interactive renderer returns an explicit delivery error without sending a partial list or silently truncating options. The gateway's existing plain-text fallback may then deliver the question without buttons; use a smaller prompt to keep the interactive layout. Clarification buttons do not use dropdowns.
 
-The buttons disable themselves once a choice is made so duplicate clicks don't double-resolve the prompt. Configure the response timeout via `agent.clarify_timeout` in `~/.hermes/config.yaml` (default `3600` seconds; `0` or less = unlimited). If you don't respond within the timeout, the agent unblocks with `"outcome": "timed_out"` and adapts rather than hanging. Reply `skip` to skip a question.
+The buttons disable themselves once a choice is made so duplicate clicks don't double-resolve the prompt. Configure the response timeout via `agent.clarify_timeout` in `~/.hermes/config.yaml` (default `90` seconds; `0` or less = unlimited). If you don't respond within the timeout, the agent unblocks with `"outcome": "timed_out"` and adapts rather than hanging. Reply `skip` to skip a question.
 
 ### Prompt layout
 
