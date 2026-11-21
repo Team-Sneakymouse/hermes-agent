@@ -263,21 +263,38 @@ class GatewaySessionCommandsMixin:
             await self.hooks.emit("session:reset", dict(hook_payload))
 
     async def _fire_plugin_session_reset(self, source: SessionSource, session_key: str, old_sid, new_sid) -> None:
-        """Plugin ``on_session_reset`` for the session /new opened: off-loop, bounded, and under the
-        profile owning ``session_key`` (#151672), as the viewer-close /new path does."""
-        # Fork conversation seam (FORK.md): the delivery scope follows the new session, and the
-        # plugin sees the routed source and the lane's base key under the routed profile.
+        """Plugin ``on_session_reset`` for the session /new opened.
+
+        Fork conversation seam (FORK.md, gateway-conversation-plugins.md): the hook is awaited on
+        the loop inside ``conversation_reset_boundary``, not bounded off-loop like upstream's, so a
+        slow observer cannot outlive the boundary and erase the next turn's lane association, and
+        ``async def`` plugin callbacks are awaited. Like the event hooks above, it runs under the
+        profile owning ``session_key`` (home and secrets: /new can arrive unscoped, #151672), and
+        carries the detached source, channel, profile and both session keys."""
+        from agent.secret_scope import is_multiplex_active
+        from gateway.run import _async_profile_runtime_scope
+        from hermes_cli.lifecycle import ainvoke_hook
         from gateway.conversation_plugins import bind_delivery_session, plugin_profile_scope
         from gateway.session_identity import replace_source
         bind_delivery_session(new_sid)
-        with plugin_profile_scope(source):
-            await self._reset_session_off_loop(
-                session_key=session_key, session_id=new_sid, reason="new_session",
-                platform=source.platform.value if source.platform else "",
-                old_session_id=old_sid, new_session_id=new_sid,
-                source=replace_source(source), channel_id=source.chat_id, profile=source.profile,
-                base_session_key=(session_key.rsplit(":lane:", 1)[0]
-                                  if source.conversation_lane else session_key))
+        scope = contextlib.nullcontext()
+        if is_multiplex_active():  # one profile: the ambient scope is already the owner's
+            store = getattr(self, "session_store", None)
+            owner = store._profile_home_for_key(session_key) if store is not None else None
+            scope = _async_profile_runtime_scope(owner) if owner else self._async_profile_scope_for_source(source)
+        try:
+            async with scope:
+                with plugin_profile_scope(source):
+                    await ainvoke_hook(
+                        "on_session_reset", session_id=new_sid, reason="new_session",
+                        platform=source.platform.value if source.platform else "",
+                        old_session_id=old_sid, new_session_id=new_sid,
+                        source=replace_source(source), channel_id=source.chat_id, profile=source.profile,
+                        session_key=session_key,
+                        base_session_key=(session_key.rsplit(":lane:", 1)[0]
+                                          if source.conversation_lane else session_key))
+        except Exception:
+            logger.debug("Plugin on_session_reset hooks failed for %s", new_sid, exc_info=True)
 
     async def _handle_discard_command(self, event: MessageEvent) -> str:
         """``/discard``: drop this chat's turn lost in a gateway restart so its queue runs again."""

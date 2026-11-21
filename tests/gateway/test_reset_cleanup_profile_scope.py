@@ -68,8 +68,14 @@ async def test_reset_runs_memory_cleanup_and_session_hooks_under_the_owning_prof
     seen: dict = {}
     monkeypatch.setattr("hermes_cli.lifecycle.finalize_session",
                         lambda **_kw: seen.__setitem__("finalize", str(get_hermes_home())))
-    monkeypatch.setattr("hermes_cli.lifecycle.invoke_hook", lambda name, **_kw: seen.__setitem__(name, (
-        str(get_hermes_home()), (secret_scope.current_secret_scope() or {}).get("HINDSIGHT_LLM_API_KEY"))))
+    def _record(name, **_kw):
+        seen[name] = (str(get_hermes_home()), (secret_scope.current_secret_scope() or {}).get("HINDSIGHT_LLM_API_KEY"))
+
+    async def _arecord(name, **kw):  # fork: /new's plugin on_session_reset is awaited (FORK.md)
+        _record(name, **kw)
+
+    monkeypatch.setattr("hermes_cli.lifecycle.invoke_hook", _record)
+    monkeypatch.setattr("hermes_cli.lifecycle.ainvoke_hook", _arecord)
     runner = _runner({key: prof_b})
     runner._agent_cache[key] = (_RecordingAgent(seen, prof_b), "sig")
     source = SessionSource(platform=Platform.TELEGRAM, chat_id="1", user_id="1", chat_type="dm")
