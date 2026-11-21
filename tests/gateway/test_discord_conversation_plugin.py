@@ -162,7 +162,7 @@ async def test_real_session_store_retains_transcript_and_compression_tip_across_
         try:
             db.end_session(parent, "compression")
             db.create_session("compression-tip", source="discord", parent_session_id=parent)
-            db.replace_messages("compression-tip", [{"role": "user", "content": "retained compressed history"}])
+            db.append_message("compression-tip", "user", "retained compressed history")
         finally:
             db.close()
         async def prior():

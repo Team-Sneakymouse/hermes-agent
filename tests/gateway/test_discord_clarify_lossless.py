@@ -108,7 +108,7 @@ async def test_other_numeric_prompt_captures_typed_answer():
         assert entry.awaiting_text
         assert not entry.event.is_set()
         assert all(button.disabled for button in view.children)
-        assert cm.attempt_text_response_for_session(entry.session_key, "my custom answer") == cm.TEXT_RESOLVED
+        assert cm.attempt_text_response(entry.clarify_id, "my custom answer") == cm.TEXT_RESOLVED
         assert entry.response == "my custom answer"
     finally:
         cm.wait_for_response(entry.clarify_id, timeout=0.01)

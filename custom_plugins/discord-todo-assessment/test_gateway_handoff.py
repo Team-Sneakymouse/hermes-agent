@@ -170,8 +170,8 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
                     finally:
                         runner._clear_plugin_message_injector()
                         runner._running = False
-                        if runner._session_db:
-                            await runner._session_db.close()
+                        runner.session_store.close_all_db_handles()  # the store's sweep first (#98573)
+                        runner.close_all_session_db_handles()
 
 if __name__ == "__main__":
     unittest.main()
