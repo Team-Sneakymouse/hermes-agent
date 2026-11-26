@@ -172,7 +172,7 @@ Every enabled plugin must print `ok`.
 
 ```sh
 grep -E 'inbound message|response ready' ~/.hermes/logs/gateway.log | tail -2   # idle?
-git -C ~/.hermes/hermes-agent fetch origin main   # hermes update gives its fetch only 300s
+git -C ~/.hermes/hermes-agent fetch origin main   # hermes update gives its fetch only 300s; this took ~25 min on 2026-11-26
 hermes update --backup --yes                       # --backup: the host's automatic one is off
 ```
 
