@@ -59,11 +59,13 @@ diff "$INV/before.txt" "$INV/after.txt"   # every difference must be explained
 After the merge, disable any workflow upstream added (§ Fork CI):
 
 ```sh
-gh -R Team-Sneakymouse/hermes-agent workflow list --all --limit 500 --json path,state \
-  --jq '.[] | select(.state == "active") | .path | split("/") | last' |
-  grep -vxE 'fork-ci\.yml|osv-scanner\.yml' |
+gh -R Team-Sneakymouse/hermes-agent workflow list --all --limit 500 --json id,path,state \
+  --jq '.[] | select(.state == "active") | select(.path | test("/(fork-ci|osv-scanner)[.]yml$") | not) | .id' |
   xargs -r -n1 gh -R Team-Sneakymouse/hermes-agent workflow disable
 ```
+
+It disables by ID: right after a merge, `workflow disable <file>.yml` can answer 404 ("not found on the
+default branch") for a workflow that `workflow list` already shows as active.
 
 Verify, then open a PR into `origin/main` (title `chore(sync): merge NousResearch <tag> (<sha>)`).
 Fork CI runs all of this on the PR; locally:
@@ -172,7 +174,7 @@ Every enabled plugin must print `ok`.
 
 ```sh
 grep -E 'inbound message|response ready' ~/.hermes/logs/gateway.log | tail -2   # idle?
-git -C ~/.hermes/hermes-agent fetch origin main   # hermes update gives its fetch only 300s; this took ~25 min on 2026-11-26
+git -C ~/.hermes/hermes-agent fetch origin main   # hermes update gives its fetch only 300s; this took 5–25 min in Nov 2026
 hermes update --backup --yes                       # --backup: the host's automatic one is off
 ```
 
@@ -187,6 +189,10 @@ hermes update --backup --yes                       # --backup: the host's automa
 - the update prints `PID <PID> handed back to its external supervisor` for the dashboard, and the
   process on port 9119 (`ss -ltnp | grep 9119`) has `hermes-dashboard-supervisor` as its parent.
   A parent of `1` means the supervisor lacks `--external-supervisor`: `kill -TERM` that PID.
+  Since v0.23.4 the update then prints `Found an old Hermes backend for this profile: hermes dashboard
+  (started by hand, PID …)`. That's our supervised dashboard: upstream's backend scan reads any
+  non-systemd parent as "started by hand", and the notice only reads, it changes nothing. Moving the
+  dashboard into the gateway's Webapp (`hermes gateway migrate --backends`) hasn't been decided.
 
 Then smoke-test in Discord and read `gateway.log` for each: a clarify button and an approval button,
 both in a guild channel and in a thread (use a PocketBase change for the approval; shell commands
