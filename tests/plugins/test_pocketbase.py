@@ -400,7 +400,10 @@ def test_real_discovery_registration_and_structured_error(backend, loaded_plugin
     assert manager._plugins["pocketbase"].error is None
     entry = registry.get_entry("pocketbase_records", scope=manager.scope_key)
     assert entry.check_fn() is True
-    assert json.loads(registry.dispatch("pocketbase_records", {"action": "delete", "collection": "notes", "confirmed": True}, scope=manager.scope_key))["success"] is False
+    # A model-supplied approval flag never reaches the plugin: the registry refuses the unknown argument.
+    refused = json.loads(registry.dispatch("pocketbase_records", {"action": "delete", "collection": "notes", "confirmed": True}, scope=manager.scope_key))
+    assert "NOT invoked" in refused["error"]
+    assert json.loads(registry.dispatch("pocketbase_records", {"action": "delete", "collection": "notes"}, scope=manager.scope_key))["success"] is False
     backend["replies"] = [(200, {"token": "private-token"}), (200, SCHEMA), (200, {"items": []})]
     assert json.loads(registry.dispatch("pocketbase_records", {"action": "list", "collection": "notes"}, scope=manager.scope_key))["data"] == {"items": []}
 
