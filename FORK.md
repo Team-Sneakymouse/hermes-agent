@@ -191,8 +191,11 @@ hermes update --backup --yes                       # --backup: the host's automa
   A parent of `1` means the supervisor lacks `--external-supervisor`: `kill -TERM` that PID.
   Since v0.23.4 the update then prints `Found an old Hermes backend for this profile: hermes dashboard
   (started by hand, PID …)`. That's our supervised dashboard: upstream's backend scan reads any
-  non-systemd parent as "started by hand", and the notice only reads, it changes nothing. Moving the
-  dashboard into the gateway's Webapp (`hermes gateway migrate --backends`) hasn't been decided.
+  non-systemd parent as "started by hand", and the notice only reads, it changes nothing. Don't follow
+  it: `gateway migrate --backends --apply` is blocked on the bot host (exit 3; SysV init, so no systemd
+  user service to move the gateway into), and `--force-interrupt` would stop the supervised gateway
+  with nothing to replace it. Moving the dashboard into the gateway's Webapp would be a manual change
+  (`webapp.*` in `config.yaml`, then retire the dashboard supervisor). It hasn't been decided.
 
 Then smoke-test in Discord and read `gateway.log` for each: a clarify button and an approval button,
 both in a guild channel and in a thread (use a PocketBase change for the approval; shell commands
